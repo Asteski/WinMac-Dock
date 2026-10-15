@@ -20,10 +20,13 @@
   <img src="https://github.com/Asteski/WinMac-Dock/blob/3b64ea8fa7581786ee5bda0c204ddc84bfaeb117/img/img02.png" alt="WinMac Dock Dark Mode">
 </p>
 
-**WinMac Dock is a customizable Windows 11 dock with macOS-style magnification, smooth animations, task grouping, window controls, and flexible positioning on any screen edge.**
+**WinMac Dock is a customizable Windows 11 dock with macOS-style magnification, smooth animations, task grouping, window controls, and flexible positioning on left, bottom or right screen edge.**
 
 It supports pinned apps, files, folders, and built-in modules including Start Menu, Downloads, Recycle Bin, File Explorer, Settings, Microsoft Store, Terminal, and Task Manager. Customize icons, spacing, margins, background material, highlights, docking behavior, automatic hiding, full-screen spanning, context menus, and per-item properties.
 
 The Downloads module provides grid and list views with sorting, file previews, folder navigation, and quick pinning. WinMac Dock also includes Task View integration through the optional [Windhawk bridge mod](https://github.com/Asteski/WinMac-Dock/blob/a1e8460b41cd09a1d9ab7bce7c2282145a4a7200/mods/winmac-dock-task-view.wh.cpp).
+<<<<<<< HEAD
 
 Use modifier keys while dragging: hold *Alt* to rearrange locked dock items, *Ctrl* to show/hide all windows, *Shift* to open new window, and *Ctrl+Shift* to open new window in administrative mode.
+=======
+>>>>>>> e68d88f2e169ed3953ffa3a6350fa803ac4a5db3
