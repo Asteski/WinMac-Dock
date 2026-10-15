@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.svg" alt="WinMac Dock" width="600">
+</p>
+
 <h1 align="center">
   <span>WinMac Dock</span>
 </h1>
