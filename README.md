@@ -10,3 +10,9 @@
 </h3>
 <p align="center">
   <span align="center">A standalone Windows 11 dock built with .NET 10, WinUI 3, Windows Composition and the Windows shell. It offers native Windows Acrylic and Mica, solid/transparent backgrounds, system light/dark colors, native WinUI menus, and icon magnification.</span>
+
+
+### Light Mode:
+![WinMacMenu screenshot](img/img01.png)
+### Dark Mode:
+![WinMacMenu screenshot](img/img02.png)
