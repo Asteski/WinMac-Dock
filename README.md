@@ -11,9 +11,6 @@
 <p align="center">
   <span align="center">A standalone Windows 11 dock built with .NET 10, WinUI 3, Windows Composition and the Windows shell. It offers native Windows Acrylic and Mica, solid/transparent backgrounds, system light/dark colors, native WinUI menus, and icon magnification.</span>
 
-![WinMacMenu screenshot](img/img01.png)
-![WinMacMenu screenshot](img/img02.png)
-
 <p align="center">
   <img src="https://github.com/Asteski/WinMac-Dock/blob/3b64ea8fa7581786ee5bda0c204ddc84bfaeb117/img/img01.png" alt="WinMac Dock Light Mode">
 </p>
