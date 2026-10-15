@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.svg" alt="WinMac Dock" width="600">
+  <img src="assets/logo.svg" alt="WinMac Dock" width="200">
 </p>
 
 <h1 align="center">
