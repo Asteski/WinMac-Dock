@@ -27,3 +27,5 @@
 * The Downloads module provides grid and list views with sorting, file previews, folder navigation, and quick pinning. WinMac Dock also includes Task View integration through the optional [Windhawk bridge mod](https://github.com/Asteski/WinMac-Dock/blob/a1e8460b41cd09a1d9ab7bce7c2282145a4a7200/mods/winmac-dock-task-view.wh.cpp).
 
 * Use modifier keys while clicking/dragging items: hold *Alt* to rearrange locked dock items, *Ctrl* to show/hide all windows, *Shift* to open new window, and *Ctrl+Shift* to open new window in administrative mode.
+
+* Assing icons to dock items using *.ico, *.png, *.jpg, *.bmp, *.svg and *.dll file formats.
