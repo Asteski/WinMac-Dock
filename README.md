@@ -24,7 +24,7 @@
 
 * It supports pinned apps, files, folders, and built-in modules or custom items including Start Menu, Downloads, Recycle Bin, File Explorer, Settings, Microsoft Store, Terminal, Edge, Task View, Search and Task Manager. Customize icons, spacing, margins, background material, highlights, docking behavior, automatic hiding, full-screen spanning, context menus, and per-item properties.
 
-* The Downloads module provides grid and list views with sorting, file previews, folder navigation, and quick pinning. WinMac Dock also includes Task View integration through the optional [Windhawk bridge mod](https://github.com/Asteski/WinMac-Dock/blob/a1e8460b41cd09a1d9ab7bce7c2282145a4a7200/mods/winmac-dock-task-view.wh.cpp).
+* Pinned folders and Downloads module provides grid and list views with sorting, file previews, folder navigation, and quick pinning. WinMac Dock also includes Task View integration through the optional [Windhawk bridge mod](https://github.com/Asteski/WinMac-Dock/blob/a1e8460b41cd09a1d9ab7bce7c2282145a4a7200/mods/winmac-dock-task-view.wh.cpp).
 
 * Use modifier keys while clicking/dragging items: hold *Alt* to rearrange locked dock items, *Ctrl* to show/hide all windows, *Shift* to open new window, and *Ctrl+Shift* to open new window in administrative mode.
 
