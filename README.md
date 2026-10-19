@@ -20,7 +20,7 @@
   <img src="https://github.com/Asteski/WinMac-Dock/blob/f12d496c8021cd875650275d6865c8c71e558030/img/img02.gif" alt="WinMac Dock Dark Mode">
 </p>
 
-**WinMac Dock is a customizable Windows 11 dock with macOS-style magnification, smooth animations, task grouping, window controls, and flexible positioning and aligmnent on any screen edge and display.**
+**WinMac Dock is a customizable Windows 11 dock with macOS-style magnification, smooth animations, task grouping, window controls, and flexible positioning and alignnent on any screen edge or display.**
 
 * It supports pinned apps, files, folders, and built-in modules or custom items including Start Menu, Downloads, Recycle Bin, File Explorer, Settings, Microsoft Store, Terminal, Edge, Task View, Search and Task Manager. Customize icons, spacing, margins, background material, highlights, docking behavior, automatic hiding, full-screen spanning, context menus, and per-item properties.
 
