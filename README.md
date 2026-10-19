@@ -11,6 +11,20 @@
 <p align="center">
   <span align="center">A standalone Windows 11 dock built with .NET 10, WinUI3, Windows Composition and the Windows shell. It offers native Windows Acrylic and Mica, solid/transparent backgrounds, system light/dark colors, multi-monitor setup, native WinUI menus, and macOS-style icon magnification.</span>
 </p>
+
+<p align="center">
+  <a href="https://github.com/Asteski/WinMac-Dock/releases/download/v0.3.0/WinMac-Dock-0.3.0-beta-x64.zip"><img alt="Download x64" src="https://img.shields.io/badge/Download-x64-0078D6?style=for-the-badge"></a>
+  <a href="https://github.com/Asteski/WinMac-Dock/releases/download/v0.3.0/WinMac-Dock-0.3.0-beta-arm64.zip"><img alt="Download ARM64" src="https://img.shields.io/badge/Download-ARM64-00A86B?style=for-the-badge"></a>
+</p>
+
+<p align="center">
+  <img alt="Latest Release" src="https://img.shields.io/github/v/release/Asteski/WinMac-Dock">
+  <img alt="Release Date" src="https://img.shields.io/github/release-date/Asteski/WinMac-Dock">
+  <img alt="Downloads (all releases)" src="https://img.shields.io/github/downloads/Asteski/WinMac-Dock/total">
+  <img alt="Downloads (latest release)" src="https://img.shields.io/github/downloads/Asteski/WinMac-Dock/latest/total">
+</p>
+
+
 </p>
 <p align="center">
   <img src="https://github.com/Asteski/WinMac-Dock/blob/3b64ea8fa7581786ee5bda0c204ddc84bfaeb117/img/img01.png" alt="WinMac Dock Light Mode">
