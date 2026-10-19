@@ -6,7 +6,7 @@
   <span>WinMac Dock</span>
 </h1>
 <h3 align="center">
-  <span align="center">WinUI3 dock for Windows that looks and feels native.</span>
+  <span align="center">WinUI3 dock for Windows that looks and feels native</span>
 </h3>
 <p align="center">
   <span align="center">A standalone Windows 11 dock built with .NET 10, WinUI3, Windows Composition and the Windows shell. It offers native Windows Acrylic and Mica, solid/transparent backgrounds, system light/dark colors, multi-monitor setup, native WinUI menus, and macOS-style icon magnification.</span>
