@@ -28,4 +28,4 @@
 
 * Use modifier keys while clicking/dragging items: hold *Alt* to rearrange locked dock items, *Ctrl* to show/hide all windows, *Shift* to open new window, and *Ctrl+Shift* to open new window in administrative mode.
 
-* Assing icons to dock items using *.ico, *.png, *.jpg, *.bmp, *.svg and *.dll file formats.
+* Assing icons to dock items using _*.ico_, _*.png_, _*.jpg_, *_.bmp_, _*.svg_ and _*.dll_ file formats.
