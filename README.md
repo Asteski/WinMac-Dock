@@ -13,8 +13,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Asteski/WinMac-Dock/releases/download/v0.3.0/WinMac-Dock-0.3.0-beta-x64.zip"><img alt="Download x64" src="https://img.shields.io/badge/Download-x64-0078D6?style=for-the-badge"></a>
-  <a href="https://github.com/Asteski/WinMac-Dock/releases/download/v0.3.0/WinMac-Dock-0.3.0-beta-arm64.zip"><img alt="Download ARM64" src="https://img.shields.io/badge/Download-ARM64-00A86B?style=for-the-badge"></a>
+  <a href="https://github.com/Asteski/WinMac-Dock/releases/download/v0.3.0/WinMac-Dock-0.4.0-beta-x64.zip"><img alt="Download x64" src="https://img.shields.io/badge/Download-x64-0078D6?style=for-the-badge"></a>
+  <a href="https://github.com/Asteski/WinMac-Dock/releases/download/v0.3.0/WinMac-Dock-0.4.0-beta-arm64.zip"><img alt="Download ARM64" src="https://img.shields.io/badge/Download-ARM64-00A86B?style=for-the-badge"></a>
 </p>
 
 <p align="center">
@@ -36,10 +36,33 @@
 
 **WinMac Dock is a customizable Windows 11 dock with macOS-style magnification, smooth animations, task grouping, window controls, and flexible positioning and alignment on any screen edge or display.**
 
-* Dock supports pinned apps (including PWA apps), files, folders, and built-in modules including Downloads, Recycle Bin, Start Menu, Task View and Search with additional refinements for File Explorer, Settings, Microsoft Store, Terminal, Edge, Xbox and Task Manager. Customize icons, spacing, margins, background material, highlights, docking behavior, automatic hiding, full-screen spanning, per-display appearance, context menus, and per-item properties.
+- **Apps, files, folders, and modules:** Pin applications—including supported PWAs—files, folders, shortcuts, and separators. Built-in modules include Downloads, Recycle Bin, Start Menu, Task View, and Search, with app-specific commands for File Explorer, Settings, Microsoft Store, Terminal, Edge, Xbox, and Task Manager.
 
-* Pinned folders and Downloads module provides grid and list views with sorting, file previews, folder navigation, and quick pinning. WinMac Dock also includes Task View integration through the optional [Windhawk bridge mod](https://github.com/Asteski/WinMac-Dock/blob/a1e8460b41cd09a1d9ab7bce7c2282145a4a7200/mods/winmac-dock-task-view.wh.cpp).
+- **Appearance:** Customize icon sizes, magnification, spacing, margins, borders, highlights, running indicators, and light/dark appearance. Choose Acrylic, Mica, solid or transparent backgrounds, or use **Default** to match the Windows taskbar’s native background material.
 
-* Use modifier keys while clicking/dragging items: hold *Alt* to rearrange locked dock items, *Ctrl* to show/hide all windows, *Shift* to open new window, and *Ctrl+Shift* to open new window in administrative mode.
+- **Positioning and displays:** Place the dock along the top, bottom, left, or right edge; adjust alignment, float it away from the edge, or span the full edge. Show it on one display or across all monitors, with independent positioning and behavior per display.
 
-* Assign icons to dock items using _*.ico_, _*.png_, _*.jpg_, _*.bmp_, _*.svg_ and _*.dll_ file formats.
+- **Window management:** Activate, minimize, restore, or close windows from the dock. Optionally group windows by application, display only minimized applications, and direct Windows minimize/restore animations toward their dock icons. Configure left-, right-, and middle-click actions globally or per item.
+
+- **Visibility:** Configure automatic hiding, edge reveal, fullscreen behavior and exclusions, screen-space reservation, and a customizable show/hide keyboard shortcut.
+
+- **Folders and Downloads:** Browse folder contents in grid, list, or fan views, with sorting, thumbnails, and folder-stack previews. Automatically pin newly downloaded files to a separate dock section, limit how many are retained, and optionally unpin them after opening.
+
+- **Recycle Bin:** Drop files and folders onto its icon to recycle them, empty the bin from its context menu, and optionally play sounds for both actions. Customize its empty and full icons separately.
+
+- **Per-item customization:** Change names, icons, launch arguments, working directories, and supported administrator-launch options. Customized item and module properties are remembered when unpinned and restored when pinned again.
+
+- **Custom icons:** Use ICO, PNG, JPG/JPEG, BMP, GIF, WebP, or SVG images, or select icons embedded in DLL and EXE files. Assign separate icons for light and dark mode.
+
+- **Task View integration:** Keep the dock visible during Task View using the optional [Windhawk bridge mod](https://github.com/Asteski/WinMac-Dock/blob/a1e8460b41cd09a1d9ab7bce7c2282145a4a7200/mods/winmac-dock-task-view.wh.cpp).
+
+### Mouse shortcuts
+
+- **Alt+drag:** Rearrange items while icon positions are locked.
+- **Ctrl+click:** Minimize or restore all windows belonging to the clicked application.
+- **Shift+click:** Launch the item again, opening another window where supported.
+- **Ctrl+Shift+click:** Request an administrator launch where supported.
+
+### Getting started
+
+Download the x64 or ARM64 release package, extract it, and run **WinMac.Dock.exe**. Keep the extracted files together; the required .NET and Windows App SDK runtimes are bundled.
