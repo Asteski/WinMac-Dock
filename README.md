@@ -24,7 +24,6 @@
   <img alt="Downloads (latest release)" src="https://img.shields.io/github/downloads/Asteski/WinMac-Dock/latest/total">
 </p>
 
-
 </p>
 <p align="center">
   <img src="https://github.com/Asteski/WinMac-Dock/blob/3b64ea8fa7581786ee5bda0c204ddc84bfaeb117/img/img01.png" alt="WinMac Dock Light Mode">
@@ -36,7 +35,7 @@
 
 **WinMac Dock is a customizable Windows 11 dock with macOS-style magnification, smooth animations, task grouping, window controls, and flexible positioning and alignment on any screen edge or display.**
 
-- **Apps, files, folders, and modules:** Pin applications—including supported PWAs—files, folders, shortcuts, and separators. Built-in modules include Downloads, Recycle Bin, Start Menu, Task View, and Search, with app-specific commands for File Explorer, Settings, Microsoft Store, Terminal, Edge, Xbox, and Task Manager.
+- **Apps, files, folders, and modules:** Pin applications (including supported PWAs files), folders, shortcuts, and separators. Built-in modules include Downloads, Recycle Bin, Start Menu, Task View, and Search, with app-specific commands for File Explorer, Settings, Microsoft Store, Terminal, Edge, Xbox, and Task Manager.
 
 - **Appearance:** Customize icon sizes, magnification, spacing, margins, borders, highlights, running indicators, and light/dark appearance. Choose Acrylic, Mica, solid or transparent backgrounds, or use **Default** to match the Windows taskbar’s native background material.
 
