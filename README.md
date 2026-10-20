@@ -41,7 +41,7 @@
 
 - **Positioning and displays:** Place the dock along the top, bottom, left, or right edge; adjust alignment, float it away from the edge, or span the full edge. Show it on one display or across all monitors, with independent positioning and behavior per display.
 
-- **Window management:** Activate, minimize, restore, or close windows from the dock. Optionally group windows by application, display only minimized applications, and direct Windows minimize/restore animations toward their dock icons. Configure left-, right-, and middle-click actions globally or per item.
+- **Window management:** Activate, minimize, restore, or close windows from the dock. Optionally group windows by application, display only minimized applications, and direct Windows minimize/restore animations toward their dock icons.
 
 - **Visibility:** Configure automatic hiding, edge reveal, fullscreen behavior and exclusions, screen-space reservation, and a customizable show/hide keyboard shortcut.
 
