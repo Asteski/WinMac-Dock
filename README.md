@@ -35,13 +35,13 @@
 
 **WinMac Dock is a customizable Windows 11 dock with macOS-style magnification, smooth animations, task grouping, window controls, and flexible positioning and alignment on any screen edge or display.**
 
-- **Apps, files, folders, and modules:** Pin applications (including _PWA_), folders, shortcuts, and separators. Built-in modules include _Downloads, Recycle Bin, Start Menu, Task View_ and _Search_, with app-specific commands for _File Explorer, Settings, Microsoft Store, Terminal, Edge, Xbox_ and _Task Manager_.
+- **Apps, files, folders and modules:** Pin applications (including _PWA_), folders, shortcuts and separators. Built-in modules include _Downloads, Recycle Bin, Start Menu, Task View_ and _Search_, with app-specific commands for _File Explorer, Settings, Microsoft Store, Terminal, Edge, Xbox_ and _Task Manager_.
 
 - **Appearance:** Customize icon sizes, magnification, spacing, margins, borders, highlights, running indicators, and light/dark appearance. Choose _Acrylic_, _Mica_, _solid_ or _transparent_ backgrounds, or use _Default_ to match the Windows taskbar’s native background material.
 
-- **Positioning and displays:** Place the dock along the top, bottom, left, or right edge; adjust alignment, float it away from the edge, or span the full edge. Show it on one display or across all monitors, with independent positioning and behavior per display.
+- **Positioning and displays:** Place the dock along the top, bottom, left or right edge; adjust alignment, float it away from the edge, or span the full edge. Show it on one display or across all monitors, with independent positioning and behavior per display.
 
-- **Window management:** Activate, minimize, restore, or close windows from the dock. Optionally group windows by application, display only minimized applications, and direct Windows minimize/restore animations toward their dock icons.
+- **Window management:** Activate, minimize, restore or close windows from the dock. Optionally group windows by application, display only minimized applications, and direct Windows minimize/restore animations toward their dock icons.
 
 - **Visibility:** Configure automatic hiding, edge reveal, fullscreen behavior and exclusions, screen-space reservation, and a customizable show/hide keyboard shortcut.
 
@@ -57,7 +57,7 @@
 
 ### Mouse shortcuts
 
-- **Alt+drag:** Rearrange items while icon positions are locked.
+- **Alt+drag:** Rearrange items while items positions are locked.
 - **Ctrl+click:** Minimize or restore all windows belonging to the clicked application.
 - **Shift+click:** Launch the item again, opening another window where supported.
 - **Ctrl+Shift+click:** Request an administrator launch where supported.
