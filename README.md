@@ -58,6 +58,7 @@
 ### Mouse shortcuts
 
 - **Alt+drag:** Rearrange items while items positions are locked.
+- **Alt+right-click** open Dock's main menu or separator sub-menu.
 - **Ctrl+click:** Minimize or restore all windows belonging to the clicked application.
 - **Shift+click:** Launch the item again, opening another window where supported.
 - **Ctrl+Shift+click:** Request an administrator launch where supported.
