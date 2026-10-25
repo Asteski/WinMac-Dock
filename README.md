@@ -13,8 +13,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Asteski/WinMac-Dock/releases/download/v0.6.0/WinMac-Dock-0.6.0-beta-x64.zip"><img alt="Download x64" src="https://img.shields.io/badge/Download-x64-0078D6?style=for-the-badge"></a>
-  <a href="https://github.com/Asteski/WinMac-Dock/releases/download/v0.6.0/WinMac-Dock-0.6.0-beta-arm64.zip"><img alt="Download ARM64" src="https://img.shields.io/badge/Download-ARM64-00A86B?style=for-the-badge"></a>
+  <a href="https://github.com/Asteski/WinMac-Dock/releases/download/v0.6.1/WinMac-Dock-0.6.1-beta-x64.zip"><img alt="Download x64" src="https://img.shields.io/badge/Download-x64-0078D6?style=for-the-badge"></a>
+  <a href="https://github.com/Asteski/WinMac-Dock/releases/download/v0.6.1/WinMac-Dock-0.6.1-beta-arm64.zip"><img alt="Download ARM64" src="https://img.shields.io/badge/Download-ARM64-00A86B?style=for-the-badge"></a>
 </p>
 
 <p align="center">
@@ -45,7 +45,7 @@
 
 - **Visibility:** Configure automatic hiding, edge reveal, fullscreen behavior and exclusions, screen-space reservation, and a customizable show/hide keyboard shortcut.
 
-- **Folders and Downloads:** Browse folder contents in grid, list, or fan views, with sorting, thumbnails, and folder-stack previews. Automatically pin newly downloaded files to a separate dock section, limit how many are retained, and optionally unpin them after opening. Automatically pin attached external disks, USB sticks and memory cards to a separate dock section.
+- **Folders and Downloads:** Browse folder contents in grid, list, or menu views, with sorting and folder-stack previews. Automatically pin newly downloaded files to a separate dock section, limit how many are retained, and optionally unpin them after opening. Automatically pin attached external disks, USB sticks and memory cards to a separate dock section.
   
 - **Recycle Bin:** Drop files and folders onto its icon to recycle them, empty the bin from its context menu, and optionally play sounds for both actions. Customize its empty and full icons separately.
 
