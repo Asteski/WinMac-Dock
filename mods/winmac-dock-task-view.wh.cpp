@@ -9,14 +9,6 @@
 // @compilerOptions -lcomctl32 -ldwmapi
 // ==/WindhawkMod==
 
-// ==WindhawkModSettings==
-/*
-- keepTaskViewOpenAfterDockLaunch: false
-  $name: Keep Task View open after launching from the dock
-  $description: Keeps Task View visible briefly when WinMac Dock launches an app. Turn this on only if you want to continue using Task View after a dock launch.
-*/
-// ==/WindhawkModSettings==
-
 // ==WindhawkModReadme==
 /*
 # WinMac Dock Task View Bridge
@@ -28,12 +20,6 @@ to the notification layer (4), allowing the dock to remain visible. When it is
 disabled, the dock returns to its normal desktop layer (1). The bridge does not
 alter Task View, the Windows taskbar, or any other application's windows.
 Fullscreen hiding and input remain controlled by the dock.
-
-## Settings
-
-- **Keep Task View open after launching from the dock**: Prevents Task View
-  from closing during a dock-triggered launch, so you can continue selecting
-  tasks. It is disabled by default.
 
 Band requests are applied on Explorer's authorized shell thread. A message-only
 window keeps later requests and dock restarts working automatically; shell band
@@ -94,21 +80,12 @@ bool SuppressTaskbar(HWND window) {
     if (!GetClassNameW(window, cls, ARRAYSIZE(cls))) return false;
     return !wcscmp(cls, L"Shell_TrayWnd") || !wcscmp(cls, L"Shell_SecondaryTrayWnd");
 }
-bool KeepTaskViewOpen(HWND window) {
-    if (!Wh_GetIntSetting(L"keepTaskViewOpenAfterDockLaunch") || !IsTaskViewSurface(window)) return false;
-    auto dock = g_dock.load();
-    if (!dock || !IsWindow(dock)) return false;
-    auto until = static_cast<ULONGLONG>(reinterpret_cast<ULONG_PTR>(GetPropW(dock, L"WinMac.Dock.KeepTaskViewOpenUntil")));
-    return until && GetTickCount64() <= until;
-}
 BOOL WINAPI ShowWindow_Hook(HWND window, int command) {
     TaskViewShowScope taskView(window, command != SW_HIDE);
-    if (command == SW_HIDE && KeepTaskViewOpen(window)) return TRUE;
     return ShowWindow_Original(window, SuppressTaskbar(window) ? SW_HIDE : command);
 }
 BOOL WINAPI SetWindowPos_Hook(HWND window, HWND after, int x, int y, int width, int height, UINT flags) {
     TaskViewShowScope taskView(window, (flags & SWP_SHOWWINDOW) && !(flags & SWP_HIDEWINDOW));
-    if ((flags & SWP_HIDEWINDOW) && KeepTaskViewOpen(window)) flags &= ~SWP_HIDEWINDOW;
     if (SuppressTaskbar(window)) flags = (flags & ~SWP_SHOWWINDOW) | SWP_HIDEWINDOW;
     return SetWindowPos_Original(window, after, x, y, width, height, flags);
 }
