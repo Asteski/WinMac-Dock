@@ -1,0 +1,9 @@
+// Stable group IDs: use negative resource IDs, never ordinal indices, in settings.
+101 ICON "../../assets/start.ico"
+102 ICON "../../assets/search.ico"
+103 ICON "../../assets/taskview_light.ico"
+104 ICON "../../assets/taskview_dark.ico"
+105 ICON "../../assets/defaults/recyclebin-recycleemptydarkicon.ico"
+106 ICON "../../assets/defaults/recyclebin-recyclefulldarkicon.ico"
+107 ICON "../../assets/download-badge/downloads-badge.ico"
+108 ICON "../../assets/download-badge/downloads-file-overlay.ico"

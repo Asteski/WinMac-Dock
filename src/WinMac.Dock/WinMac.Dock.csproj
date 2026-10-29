@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType><TargetFramework>net10.0-windows10.0.22621.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.22621.0</TargetPlatformMinVersion><RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
+    <UseWinUI>true</UseWinUI><EnableMsixTooling>true</EnableMsixTooling>
+    <WindowsPackageType>None</WindowsPackageType><WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <ApplicationManifest>app.manifest</ApplicationManifest><Win32Resource>$(MSBuildProjectDirectory)/obj/$(Platform)/$(Configuration)/$(TargetFramework)/DockIcons.res</Win32Resource><Platforms>x64;ARM64</Platforms><PlatformTarget Condition="'$(Platform)' == 'ARM64'">ARM64</PlatformTarget><PlatformTarget Condition="'$(Platform)' != 'ARM64'">x64</PlatformTarget>
+
+    <Version>0.7.0-beta</Version><AssemblyVersion>0.7.0.0</AssemblyVersion><FileVersion>0.7.0.0</FileVersion><InformationalVersion>Beta v0.7.0</InformationalVersion>
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks><ImplicitUsings>disable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup><FrameworkReference Include="Microsoft.WindowsDesktop.App.WindowsForms" /><PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="1.8.260709004" /><PackageReference Include="Microsoft.WindowsAppSDK.DWrite" Version="1.8.25122902" /><ProjectReference Include="../WinMac.Dock.Core/WinMac.Dock.Core.csproj" /><ProjectReference Include="../WinMac.Dock.Icons/WinMac.Dock.Icons.csproj" /></ItemGroup>
+  <ItemGroup><Content Include="../../assets/fonts/XboxFluent.ttf" Link="assets/fonts/XboxFluent.ttf" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" /></ItemGroup>
+  <ItemGroup><Content Include="../../assets/fonts/XboxFluent2.ttf" Link="assets/fonts/XboxFluent2.ttf" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" /></ItemGroup>
+  <ItemGroup><Content Include="../../assets/fonts/StoreIcons.ttf" Link="assets/fonts/StoreIcons.ttf" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" /></ItemGroup>
+  <ItemGroup><Content Include="../../assets/fonts/SettingsIcons.ttf" Link="assets/fonts/SettingsIcons.ttf" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" /></ItemGroup>
+<Target Name="CompileApplicationIconResources" BeforeTargets="PrepareForBuild;CoreCompile" Inputs="$(MSBuildProjectDirectory)/DockIcons.rc;$(MSBuildProjectDirectory)/app.manifest;@(ApplicationIconInput)" Outputs="$(Win32Resource)">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)/../../build/CompileIconResources.ps1&quot; -Source &quot;$(MSBuildProjectDirectory)/DockIcons.rc&quot; -Output &quot;$(Win32Resource)&quot;" />
+  </Target>
+  <ItemGroup><ApplicationIconInput Include="../../assets/*.ico" /></ItemGroup>
+  <Target Name="UseCompiledManifestForXaml" BeforeTargets="XamlPreCompile">
+    <PropertyGroup><Win32Manifest></Win32Manifest><EmbeddedWin32Manifest></EmbeddedWin32Manifest></PropertyGroup>
+  </Target>
+  <!-- Recompile with the SDK-generated WinUI manifest before the final C# pass. -->
+  <Target Name="UseCompiledApplicationManifest" AfterTargets="SetWin32ManifestProperties">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)/../../build/CompileIconResources.ps1&quot; -Source &quot;$(MSBuildProjectDirectory)/DockIcons.rc&quot; -Output &quot;$(Win32Resource)&quot; -Manifest &quot;$(Win32Manifest)&quot;" />
+    <PropertyGroup><Win32Manifest></Win32Manifest><EmbeddedWin32Manifest></EmbeddedWin32Manifest><NoWin32Manifest>false</NoWin32Manifest></PropertyGroup>
+  </Target>
+</Project>

@@ -1,0 +1,42 @@
+<Application x:Class="WinMac.Dock.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+            </ResourceDictionary.MergedDictionaries>
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="DockRunningAccentBrush" Color="{ThemeResource SystemAccentColor}" />
+                    <!-- The supplied taskbar reference uses a 50% white tile. -->
+                    <SolidColorBrush x:Key="DockTaskbarBackgroundBrush" Color="#80FFFFFF" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="DockRunningAccentBrush" Color="{ThemeResource SystemAccentColorLight2}" />
+                    <SolidColorBrush x:Key="DockTaskbarBackgroundBrush" Color="#0FFFFFFF" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Default">
+                    <SolidColorBrush x:Key="DockRunningAccentBrush" Color="{ThemeResource SystemAccentColorLight2}" />
+                    <SolidColorBrush x:Key="DockTaskbarBackgroundBrush" Color="#0FFFFFFF" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="HighContrast">
+                    <SolidColorBrush x:Key="DockRunningAccentBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+                    <SolidColorBrush x:Key="DockTaskbarBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+            <Style x:Key="DockAccentIndicatorStyle" TargetType="Border">
+                <Setter Property="Background" Value="{ThemeResource DockRunningAccentBrush}" />
+            </Style>
+            <Style x:Key="ShortcutKeyStyle" TargetType="Border">
+                <Setter Property="Background" Value="{ThemeResource AccentFillColorDefaultBrush}" />
+            </Style>
+            <Style x:Key="ShortcutKeyTextStyle" TargetType="TextBlock">
+                <Setter Property="Foreground" Value="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+            </Style>
+            <Style x:Key="DockNeutralIndicatorStyle" TargetType="Border">
+                <Setter Property="Background" Value="{ThemeResource ControlStrongStrokeColorDefaultBrush}" />
+            </Style>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>
