@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Version>0.7.0-beta</Version>
+    <AssemblyVersion>0.7.0.0</AssemblyVersion>
+    <Win32Resource>$(MSBuildProjectDirectory)/obj/$(Platform)/$(Configuration)/$(TargetFramework)/DockIcons.res</Win32Resource>
+  </PropertyGroup>
+  <Target Name="CompileDockIconResources" BeforeTargets="CoreCompile" Inputs="$(MSBuildProjectDirectory)/DockIcons.rc;@(IconInput)" Outputs="$(Win32Resource)">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)/../../build/CompileIconResources.ps1&quot; -Source &quot;$(MSBuildProjectDirectory)/DockIcons.rc&quot; -Output &quot;$(Win32Resource)&quot;" />
+  </Target>
+  <ItemGroup><IconInput Include="../../assets/**/*.ico" /></ItemGroup>
+  <ItemGroup><EmbeddedResource Include="../../assets/download-badge/downloads-badge.svg" LogicalName="WinMac.Dock.Icons.DownloadsBadge.svg" /></ItemGroup>
+</Project>
