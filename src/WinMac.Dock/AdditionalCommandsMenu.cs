@@ -38,6 +38,34 @@ internal sealed partial class DockWindow
             if (item.AdditionalCommands != AdditionalCommandsVisibility.Hidden && AddTerminalProfiles(menu, item)) menu.Items.Add(new MenuFlyoutSeparator());
             return;
         }
+        if (ShellService.IsXbox(item)) { AddXboxSections(menu, item); return; }
+        if (ShellService.IsSnippingTool(item))
+        {
+            foreach (var section in new[] { (Mode: item.Snipping.FoldersCommands, Label: "Folders", Folders: true), (Mode: item.AdditionalCommands, Label: "Tasks", Folders: false) }.OrderBy(s => s.Mode))
+            {
+                if (section.Mode == AdditionalCommandsVisibility.Hidden) continue;
+                var content = new MenuFlyout(); AddSnippingToolCommands(content, section.Folders);
+                var items = content.Items.ToArray(); content.Items.Clear();
+                if (section.Mode == AdditionalCommandsVisibility.Submenu)
+                {
+                    var submenu = new MenuFlyoutSubItem { Text = section.Label };
+                    foreach (var entry in items) submenu.Items.Add(entry);
+                    menu.Items.Add(submenu);
+                }
+                else foreach (var entry in items) menu.Items.Add(entry);
+                menu.Items.Add(new MenuFlyoutSeparator());
+            }
+            if (Settings.Items.Any(i => i.IsDownloadedPin && i.CapturePin != CapturePinKind.None))
+            {
+                Menu(menu, "Unpin captures", () =>
+                {
+                    Settings.Items.RemoveAll(i => i.IsDownloadedPin && i.CapturePin != CapturePinKind.None);
+                    Save(); Reconcile();
+                }, "\uE77A");
+                menu.Items.Add(new MenuFlyoutSeparator());
+            }
+            return;
+        }
         if (item.AdditionalCommands == AdditionalCommandsVisibility.Hidden) return;
         var commands = new MenuFlyout();
         if (ShellService.IsTerminal(item)) AddTerminalProfiles(commands, item);

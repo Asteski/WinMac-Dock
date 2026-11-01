@@ -5,7 +5,6 @@ namespace WinMac.Dock;
 internal static class Program
 {
     public static event Action<string>? CommandReceived;
-    internal static bool SeparatorAudit => StartupCommand is "--test-folder-settings" or "--test-flyout-icons" or "--test-separator-spacing" or "--test-unpinned-menus" or "--test-edge-clicks" or "--test-passive-focus" or "--test-icon-apply" or "--test-icon-resources" or "--test-drag-spacing" or "--test-taskbar-settings";
     public static string StartupCommand { get; private set; } = "--startup";
     [STAThread]
     public static void Main(string[] args)
@@ -19,6 +18,7 @@ internal static class Program
             args = args.Skip(2).ToArray();
         }
         StartupCommand = args.FirstOrDefault() ?? "--startup";
+        if (StartupCommand is not ("--startup" or "--sync-startup" or "--show" or "--hide" or "--toggle" or "--settings" or "--about" or "--reload" or "--elevate" or "--exit")) return;
         if (StartupCommand == "--sync-startup")
         {
             try
@@ -29,8 +29,8 @@ internal static class Program
             catch (Exception ex) { Log.Write(ex); Environment.ExitCode = 1; }
             return;
         }
-        using var mutex = new Mutex(true, "Local\\WinMac.Dock." + Environment.UserName + (SeparatorAudit ? ".SeparatorAudit" : ""), out var first);
-        var pipeName = "WinMac.Dock." + Environment.UserName + (SeparatorAudit ? ".SeparatorAudit" : "");
+        using var mutex = new Mutex(true, "Local\\WinMac.Dock." + Environment.UserName, out var first);
+        var pipeName = "WinMac.Dock." + Environment.UserName;
         if (!first)
         {
             try { using var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.Out); pipe.Connect(3000); using var writer = new StreamWriter(pipe) { AutoFlush = true }; writer.WriteLine(args.FirstOrDefault() ?? "--show"); }

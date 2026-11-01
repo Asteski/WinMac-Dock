@@ -67,36 +67,4 @@ internal sealed partial class DockWindow
         }
         indicatorTransitions.Clear();
     }
-    private async Task CheckIndicatorSizeTransition(Border indicator)
-    {
-        StopIndicatorAnimations();
-        bool rotated = Vertical && !Settings.ForceIndicatorsToItemBase;
-        double activeLength = Settings.WindowsTaskbarHighlights ? 14 : 16;
-        indicator.Width = rotated ? 3 : 6; indicator.Height = rotated ? 6 : 3; PositionIndicator(indicator);
-        SetIndicatorSize(indicator, rotated ? 3 : activeLength, rotated ? activeLength : 3);
-        SetIndicatorSize(indicator, rotated ? 3 : 6, rotated ? 6 : 3);
-        if (indicatorTransitions.ContainsKey(indicator)) throw new InvalidOperationException("Immediate reversal did not cancel indicator animation.");
-        SetIndicatorSize(indicator, rotated ? 3 : activeLength, rotated ? activeLength : 3);
-        double Length() => rotated ? indicator.Height : indicator.Width;
-        if (Length() != 6) throw new InvalidOperationException("Indicator size animation jumped to its target.");
-        await Task.Delay(45);
-        double intermediate = Length();
-        if (intermediate <= 6 || intermediate >= activeLength) throw new InvalidOperationException("Indicator size did not interpolate.");
-        root.UpdateLayout();
-        var slot = hoverSlots.FirstOrDefault(s => s.Indicator == indicator);
-        if (slot?.IndicatorCarrier != null && (Math.Abs(slot.IndicatorCarrier.ActualWidth - indicator.Width) > 1 || Math.Abs(slot.IndicatorCarrier.ActualHeight - indicator.Height) > 1))
-            throw new InvalidOperationException("Animated hover indicator was clipped by its carrier.");
-        SetIndicatorSize(indicator, rotated ? 3 : 6, rotated ? 6 : 3);
-        if (Length() != intermediate) throw new InvalidOperationException("Reversing indicator animation caused a jump.");
-        await Task.Delay(200);
-        if (Length() != 6 || indicatorTransitions.ContainsKey(indicator)) throw new InvalidOperationException("Indicator size animation did not settle.");
-        bool reduced = Settings.ReduceMotion;
-        try
-        {
-            Settings.ReduceMotion = true;
-            SetIndicatorSize(indicator, rotated ? 3 : activeLength, rotated ? activeLength : 3);
-            if (Length() != activeLength || indicatorTransitions.ContainsKey(indicator)) throw new InvalidOperationException("Reduce motion did not disable indicator animation.");
-        }
-        finally { Settings.ReduceMotion = reduced; }
-    }
 }

@@ -16,7 +16,7 @@ internal static class LoginStartup
         {
             using var user = WindowsIdentity.GetCurrent();
             string sid = user.User?.Value ?? throw new InvalidOperationException("The current Windows user could not be identified.");
-            string taskName = StartupTaskDefinition.NameForUser(sid);
+            string taskName = StartupTaskDefinition.Name;
             object? service = null, folder = null, registered = null;
             try
             {
@@ -31,11 +31,13 @@ internal static class LoginStartup
                     // or elevation. Leave the legacy entry intact if this fails.
                     registered = ((dynamic)folder).RegisterTask(taskName, xml, 6, sid, null, 3, null);
                 }
-                else
+                // Register the replacement before removing the old task, so a
+                // registration failure leaves the existing sign-in action intact.
+                var remove = enabled ? new[] { StartupTaskDefinition.LegacyNameForUser(sid) }
+                    : new[] { taskName, StartupTaskDefinition.LegacyNameForUser(sid) };
+                foreach (var name in remove)
                 {
-                    try { ((dynamic)folder).DeleteTask(taskName, 0); }
-                    // Dynamic COM maps a missing task to FileNotFoundException
-                    // on some systems, and COMException on others.
+                    try { ((dynamic)folder).DeleteTask(name, 0); }
                     catch (Exception ex) when (unchecked((uint)ex.HResult) is 0x80070002 or 0x8004130F) { }
                 }
                 using var key = Registry.CurrentUser.OpenSubKey(RunKey, writable: true);
@@ -50,10 +52,10 @@ internal static class LoginStartup
         }
     }
 
-    internal static void MigrateLegacyEntry(bool enabled)
+    internal static void EnsureConfigured(bool enabled)
     {
-        if (!enabled) return;
-        using var key = Registry.CurrentUser.OpenSubKey(RunKey);
-        if (key?.GetValue(LegacyValue) != null) Configure(true);
+        // Refresh the action after a folder move, and
+        // recreate a missing task when startup is enabled in Dock settings.
+        if (enabled) Configure(true);
     }
 }

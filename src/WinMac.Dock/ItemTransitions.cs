@@ -24,11 +24,7 @@ internal sealed partial class DockWindow
     private bool rowSpanTransition;
     private PixelRect? spanTransitionHost;
     private PixelRect rowFromPanel, rowToPanel, rowDisplayPanel;
-    private long rowStamp, rowAnimations, rowFrames;
-    private bool rowTesting;
-    private long rowClipErrors, rowIntermediateFrames;
-    private long rowHandoffResizes;
-    private readonly List<double> rowCompletedDurations = [];
+    private long rowStamp;
     private PixelRect? retainedRowHost;
     private DockEdge retainedRowEdge;
     private DockAlignment retainedRowAlignment;
@@ -225,7 +221,7 @@ internal sealed partial class DockWindow
         foreach (var move in rowMoves) rowArtwork.Children.Add(move.Sprite.View);
         if (!root.Children.Contains(rowArtwork)) root.Children.Add(rowArtwork);
         rowFromPanel = before.Panel; rowToPanel = after.Panel; rowDisplayPanel = rowFromPanel;
-        rowStamp = Stopwatch.GetTimestamp(); rowAnimating = true; rowAnimations++;
+        rowStamp = Stopwatch.GetTimestamp(); rowAnimating = true; 
         PaintRowTransition(0);
         CompositionTarget.Rendering += RowRendering;
     }
@@ -275,14 +271,7 @@ internal sealed partial class DockWindow
                 if (shellIcons.Any(icon => move.Sprite.Key == icon.Entry.Item.Id + ":icon")) move.Sprite.View.Opacity = 0;
                 if (move.Opacity > .001 && !move.ClosingIndicator) input = Union(input, new((int)Math.Floor(value.Left), (int)Math.Floor(value.Top), (int)Math.Ceiling(value.Right), (int)Math.Ceiling(value.Bottom)));
             }
-            visibleBounds = input; SetHoverClip(); PaintMaterialSurface(0); rowFrames++;
-            if (rowTesting || hoverTestInput != null)
-            {
-                if (progress > 0 && progress < 1) rowIntermediateFrames++;
-                foreach (var move in rowMoves.Where(m => m.Opacity > .001 && !m.ClosingIndicator))
-                    if (move.Current.Left < hostBounds.Left - 1.1 || move.Current.Top < hostBounds.Top - 1.1
-                        || move.Current.Right > hostBounds.Right + 1.1 || move.Current.Bottom > hostBounds.Bottom + 1.1) rowClipErrors++;
-            }
+            visibleBounds = input; SetHoverClip(); PaintMaterialSurface(0); 
         }
         finally { rowPainting = false; }
     }
@@ -309,7 +298,6 @@ internal sealed partial class DockWindow
         bool natural = !reconciling && !positioning && rowDisplayPanel == rowToPanel && elapsed >= DockMotion.RearrangeMs;
         bool spanLayoutSettled = rowSpanTransition && natural && resting == rowToPanel && materialHostBounds == rowToPanel
             && Native.Bounds(Handle) == hostBounds;
-        if ((rowTesting || hoverTestInput != null) && natural) rowCompletedDurations.Add(elapsed);
         try
         {
             StopRowTransition(true); hoverRebuilding = true;
@@ -339,8 +327,6 @@ internal sealed partial class DockWindow
             // cover, so there is no blank compositor frame between the two.
             root.UpdateLayout(); ClearRowArtwork();
             rowResumeGrowth = null;
-            if ((rowTesting || hoverTestInput != null) && natural && Motion && !rowAnimating
-                && (hostBounds != previousHost || materialHostBounds != previousMaterialHost)) rowHandoffResizes++;
         }
         finally { hoverRebuilding = false; rowFinishing = false; }
     }

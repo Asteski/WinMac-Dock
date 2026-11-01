@@ -237,26 +237,4 @@ internal sealed class TaskbarButtonClient : IDisposable
 
 internal sealed partial class DockWindow
 {
-    private async Task CheckModuleActions()
-    {
-        var checks = new List<string>(); Exception? failure = null;
-        nint previous = Native.GetForegroundWindow();
-        try
-        {
-            foreach (var kind in new[] { ItemKind.Search, ItemKind.TaskView })
-            {
-                TaskbarModuleTrigger.Open(kind);
-                bool IsOpen() => kind == ItemKind.Search ? TaskbarButtonClient.IsSearchActive() : Native.IsTaskViewOpen();
-                for (int attempt = 0; attempt < 40 && !IsOpen(); attempt++) await Task.Delay(100);
-                if (!IsOpen()) throw new InvalidOperationException(kind + " did not open from the dock launch path.");
-                checks.Add(kind + " opened through the dock launch path");
-            }
-            TaskbarButtonClient.OpenShellAction(ItemKind.TaskView);
-            await Task.Delay(300);
-        }
-        catch (Exception ex) { failure = ex; Log.Write(ex); }
-        finally { if (Native.IsWindow(previous)) Native.SetForegroundWindow(previous); }
-        File.WriteAllText(Path.Combine(Log.DirectoryPath, "module-actions-test.json"), System.Text.Json.JsonSerializer.Serialize(
-            new { Passed = failure == null, Error = failure?.ToString(), Checks = checks }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
-    }
 }

@@ -8,6 +8,26 @@ namespace WinMac.Dock;
 
 internal sealed partial class DockWindow
 {
+    internal bool DefaultMaterialGrainEnabled => Settings.Material == DockMaterial.Default && !accessibility.HighContrast
+        && uiSettings.AdvancedEffectsEnabled && materialBackdrop?.HasActiveAcrylic == true;
+
+    internal static WriteableBitmap CreateMaterialGrain(int width, int height)
+    {
+            var bitmap = new WriteableBitmap(width, height);
+            var pixels = new byte[checked(width * height * 4)];
+            uint noise = 0x6D2B79F5;
+            for (int i = 0; i < pixels.Length; i += 4)
+            {
+                noise ^= noise << 13; noise ^= noise >> 17; noise ^= noise << 5;
+                byte alpha = (byte)(noise % 5);
+                byte tint = (noise & 0x100) != 0 ? alpha : (byte)0;
+                pixels[i] = pixels[i + 1] = pixels[i + 2] = tint; // Premultiplied monochrome noise.
+                pixels[i + 3] = alpha;
+            }
+            using (var stream = bitmap.PixelBuffer.AsStream()) stream.Write(pixels, 0, pixels.Length);
+            bitmap.Invalidate();
+        return bitmap;
+    }
     private Image? materialGrain;
     private (int Width, int Height) materialGrainSize;
     private void UpdateMaterialGrain(PixelRect panel)
@@ -29,19 +49,7 @@ internal sealed partial class DockWindow
         int height = Math.Max(1, Vertical ? monitor.Bounds.Height : panel.Height);
         if (materialGrainSize != (width, height))
         {
-            var bitmap = new WriteableBitmap(width, height);
-            var pixels = new byte[checked(width * height * 4)];
-            uint noise = 0x6D2B79F5;
-            for (int i = 0; i < pixels.Length; i += 4)
-            {
-                noise ^= noise << 13; noise ^= noise >> 17; noise ^= noise << 5;
-                byte alpha = (byte)(noise % 5);
-                byte tint = (noise & 0x100) != 0 ? alpha : (byte)0;
-                pixels[i] = pixels[i + 1] = pixels[i + 2] = tint; // Premultiplied monochrome noise.
-                pixels[i + 3] = alpha;
-            }
-            using (var stream = bitmap.PixelBuffer.AsStream()) stream.Write(pixels, 0, pixels.Length);
-            bitmap.Invalidate();
+            var bitmap = CreateMaterialGrain(width, height);
             materialGrain.Source = bitmap;
             materialGrainSize = (width, height);
         }

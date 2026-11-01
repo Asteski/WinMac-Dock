@@ -260,6 +260,7 @@ internal sealed partial class SettingsWindow : Window
         AddToggle("Disable app attention animations", dock.Settings.PreventAttentionBlinking, value => { dock.Settings.PreventAttentionBlinking = value; PreviewSettings(); });
         var attentionAnimation = AddRow("App attention animation", new ComboBox { ItemsSource = new[] { "Blink", "Bounce" }, SelectedIndex = (int)dock.Settings.AttentionAnimation });
         attentionAnimation.SelectionChanged += (_, _) => { if (attentionAnimation.SelectedIndex >= 0) { dock.Settings.AttentionAnimation = (AttentionAnimation)attentionAnimation.SelectedIndex; PreviewSettings(); } };
+        AddToggle("Keep dock visible when peeking at the desktop", dock.Settings.KeepVisibleOnDesktop, value => { dock.Settings.KeepVisibleOnDesktop = value; PreviewSettings(); });
         AddToggle("Show dock when an app needs attention", dock.Settings.ShowDockForAttention, value => { dock.Settings.ShowDockForAttention = value; PreviewSettings(); });
         panel.Children.Add(new TextBlock { Text = "Keeps a hidden dock visible until the app requesting attention is focused. Fullscreen hiding and Task View visibility still take priority.", TextWrapping = TextWrapping.Wrap, Opacity = .65, FontSize = 12 });
         var reveal = AddRow("Mouse reveal behavior", new ComboBox { ItemsSource = new[] { "Temporary overlay (keep released space)", "Restore dock reservation" }, SelectedIndex = (int)dock.Settings.ManualRevealBehavior });
@@ -285,6 +286,7 @@ internal sealed partial class SettingsWindow : Window
             placementDisplay = display.SelectedIndex > 0 ? monitors[display.SelectedIndex - 1].Identity : dock.DisplayIdentity;
             ShowSettings();
         };
+        AddToggle("Hold Shift to drag items outside the dock", dock.Settings.RequireShiftToDragRemove, value => { dock.Settings.RequireShiftToDragRemove = value; PreviewSettings(); });
         AddToggle("Group windows of the same application", dock.Settings.GroupWindows, value => { dock.Settings.GroupWindows = value; PreviewSettings(); });
         var groupedClick = AddRow("When clicking an app with multiple windows", new ComboBox { ItemsSource = new[] { "Show window list", "Activate last used window", "Cycle windows" }, SelectedIndex = (int)dock.Settings.GroupedClickBehavior });
         groupedClick.SelectionChanged += (_, _) => { if (groupedClick.SelectedIndex >= 0) { dock.Settings.GroupedClickBehavior = (GroupedClickBehavior)groupedClick.SelectedIndex; PreviewSettings(); } };
@@ -368,6 +370,8 @@ internal sealed partial class SettingsWindow : Window
         }
         (string Category, string Section, string Description) Classify(string text, string currentCategory, string currentSection)
         {
+            if (text.StartsWith("Hold Shift to drag items outside", StringComparison.OrdinalIgnoreCase)) return ("Behaviour", "Items", "Choose how dock items can be moved and removed.");
+            if (text.StartsWith("Keep dock visible when peeking", StringComparison.OrdinalIgnoreCase)) return ("Behaviour", "Visibility", "Control when the dock stays visible and how it returns.");
             if (text == "Use the entire screen edge to reveal or hide the dock") return ("Behaviour", "Visibility", "Control when the dock stays visible and how it returns.");
             if (text == "Always run as administrator" || text.StartsWith("Applies after restarting the dock.", StringComparison.Ordinal)) return ("General", "Permissions", "Choose the permissions the dock requests when it starts.");
             if (text == "Show tray icon") return ("General", "Tray icon", "Control whether the dock appears in the notification area.");

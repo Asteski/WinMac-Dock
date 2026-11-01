@@ -13,6 +13,7 @@ internal sealed class DockBackdrop(Window? window = null) : SystemBackdrop, IDis
     private DockSettings? lastSettings;
     private ElementTheme lastTheme;
     private bool lastHighContrast, lastEffects;
+    private bool transparentOverlay;
     private Windows.UI.Color lastContrastColor;
     private DesktopAcrylicController? acrylic;
     private MicaController? mica;
@@ -23,9 +24,9 @@ internal sealed class DockBackdrop(Window? window = null) : SystemBackdrop, IDis
     private (DockMaterial Material, bool Defaults, bool HighContrast, bool Effects, int Tint, int Luminosity, ElementTheme Theme)? current;
     public string Status { get; private set; } = "";
     public bool HasActiveAcrylic => acrylic?.State == SystemBackdropState.Active;
-    public object Diagnostics => new { Status, SurfaceConnected = target != null && (window == null || ReferenceEquals(window.SystemBackdrop, this)), DispatcherReady = Windows.System.DispatcherQueue.GetForCurrentThread() != null, State = acrylic?.State.ToString() ?? mica?.State.ToString(), TintColor = acrylic?.TintColor.ToString() ?? mica?.TintColor.ToString(), Material = current?.Material.ToString(), NativeDefaults = current?.Defaults, TintOpacity = acrylic?.TintOpacity ?? mica?.TintOpacity, LuminosityOpacity = acrylic?.LuminosityOpacity ?? mica?.LuminosityOpacity, PlainAlpha = plain?.Color.A };
     public void DetachForOverlay()
     {
+        transparentOverlay = true;
         // Keep the custom backdrop connected, but make its window surface
         // alpha-zero. This avoids the black/opaque band around hover content.
         if (window != null && !ReferenceEquals(window.SystemBackdrop, this)) window.SystemBackdrop = this;
@@ -43,7 +44,8 @@ internal sealed class DockBackdrop(Window? window = null) : SystemBackdrop, IDis
         if (window != null) Native.ConfigureCompositedClient(WinRT.Interop.WindowNative.GetWindowHandle(window));
         base.OnTargetConnected(connectedTarget, xamlRoot);
         target = connectedTarget;
-        if (lastSettings != null) Apply(lastSettings, lastTheme, lastHighContrast, lastEffects, lastContrastColor);
+        if (transparentOverlay) DetachForOverlay();
+        else if (lastSettings != null) Apply(lastSettings, lastTheme, lastHighContrast, lastEffects, lastContrastColor);
     }
     protected override void OnTargetDisconnected(ICompositionSupportsSystemBackdrop disconnectedTarget)
     {
@@ -53,6 +55,7 @@ internal sealed class DockBackdrop(Window? window = null) : SystemBackdrop, IDis
 
     public void Apply(DockSettings settings, ElementTheme theme, bool highContrast, bool effectsEnabled, Windows.UI.Color highContrastColor)
     {
+        transparentOverlay = false;
         lastSettings = settings; lastTheme = theme; lastHighContrast = highContrast; lastEffects = effectsEnabled; lastContrastColor = highContrastColor;
         // Window.SystemBackdrop tells WinUI to remove its opaque XAML island
         // background. Setting only the composition target brush leaves that

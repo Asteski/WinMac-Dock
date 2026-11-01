@@ -31,6 +31,7 @@ internal static class IconService
         return image;
     }
     private static readonly Dictionary<string, ImageSource> cache = [];
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ImageSource, string> vectorPaths = new();
     private sealed record LoadedIdentity(string Prefix);
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ImageSource, LoadedIdentity> loadedIdentities = new();
     private static readonly Dictionary<string, ImageSource> visibleArtwork = [];
@@ -57,7 +58,59 @@ internal static class IconService
     // to a new Image. Closing it after SetBitmapAsync causes a native
     // RO_E_CLOSED crash on that later render, outside managed exception handlers.
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ImageSource, SoftwareBitmap> backingBitmaps = new();
-    public static object? Describe(ImageSource? source) => source != null && dimensions.TryGetValue(source, out var info) ? info : null;
+    public static bool IsThumbnail(ImageSource source) => dimensions.TryGetValue(source, out var info) && info.Method is "Custom image" or "Thumbnail" or "SVG";
+    public static async Task PrepareDragPixels(ImageSource source, int width, int height)
+    {
+        if (backingBitmaps.TryGetValue(source, out _) || !vectorPaths.TryGetValue(source, out var path)) return;
+        var xml = System.Xml.Linq.XDocument.Parse(await File.ReadAllTextAsync(path));
+        var root = xml.Root ?? throw new InvalidDataException("SVG has no root element.");
+        const string svgNamespace = "http://www.w3.org/2000/svg";
+        const string linkNamespace = "http://www.w3.org/1999/xlink";
+        // Editor metadata is not SVG artwork and is rejected by Direct2D's
+        // stricter parser. Preserve SVG and image-link attributes.
+        foreach (var element in root.Descendants().Where(e => e.Name.NamespaceName != svgNamespace).ToArray()) element.Remove();
+        foreach (var attribute in root.DescendantsAndSelf().SelectMany(e => e.Attributes()).Where(a =>
+            a.IsNamespaceDeclaration ? a.Value != svgNamespace && a.Value != linkNamespace :
+            a.Name.NamespaceName.Length > 0 && a.Name.NamespaceName != svgNamespace && a.Name.NamespaceName != linkNamespace && a.Name.NamespaceName != "http://www.w3.org/XML/1998/namespace").ToArray()) attribute.Remove();
+        root.SetAttributeValue("width", width); root.SetAttributeValue("height", height);
+        using var device = new Microsoft.Graphics.Canvas.CanvasDevice();
+        using var svg = Microsoft.Graphics.Canvas.Svg.CanvasSvgDocument.LoadFromXml(device, root.ToString());
+        using var target = new Microsoft.Graphics.Canvas.CanvasRenderTarget(device, width, height, 96);
+        using (var drawing = target.CreateDrawingSession())
+        {
+            drawing.Clear(Microsoft.UI.Colors.Transparent);
+            drawing.DrawSvg(svg, new Windows.Foundation.Size(width, height));
+        }
+        var bitmap = new SoftwareBitmap(BitmapPixelFormat.Bgra8, width, height, BitmapAlphaMode.Premultiplied);
+        bitmap.CopyFromBuffer(System.Runtime.InteropServices.WindowsRuntime.WindowsRuntimeBufferExtensions.AsBuffer(target.GetPixelBytes()));
+        if (!backingBitmaps.TryGetValue(source, out _)) backingBitmaps.Add(source, bitmap);
+        else bitmap.Dispose();
+    }
+    public static byte[]? DragPixels(ImageSource source, int width, int height)
+    {
+        if (!backingBitmaps.TryGetValue(source, out var pixels)) return null;
+        var bytes = new byte[pixels.PixelWidth * pixels.PixelHeight * 4];
+        pixels.CopyToBuffer(System.Runtime.InteropServices.WindowsRuntime.WindowsRuntimeBufferExtensions.AsBuffer(bytes));
+        using var original = new System.Drawing.Bitmap(pixels.PixelWidth, pixels.PixelHeight, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+        var data = original.LockBits(new System.Drawing.Rectangle(0, 0, original.Width, original.Height), System.Drawing.Imaging.ImageLockMode.WriteOnly, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+        try { for (int row = 0; row < original.Height; row++) Marshal.Copy(bytes, row * original.Width * 4, data.Scan0 + row * data.Stride, original.Width * 4); }
+        finally { original.UnlockBits(data); }
+        using var output = new System.Drawing.Bitmap(width, height, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+        using (var graphics = System.Drawing.Graphics.FromImage(output))
+        {
+            graphics.Clear(System.Drawing.Color.Transparent);
+            graphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+            graphics.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+            double ratio = Math.Min(width / (double)original.Width, height / (double)original.Height);
+            float w = (float)(original.Width * ratio), h = (float)(original.Height * ratio);
+            graphics.DrawImage(original, (width - w) / 2, (height - h) / 2, w, h);
+        }
+        var result = new byte[width * height * 4];
+        var outputData = output.LockBits(new System.Drawing.Rectangle(0, 0, width, height), System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+        try { for (int row = 0; row < height; row++) Marshal.Copy(outputData.Scan0 + row * outputData.Stride, result, row * width * 4, width * 4); }
+        finally { output.UnlockBits(outputData); }
+        return result;
+    }
     public static bool WriteWindowIcon(IReadOnlyList<ImageSource> sources, string path)
     {
         var frames = new List<(int Size, byte[] Png)>();
@@ -189,15 +242,26 @@ internal static class IconService
                 var vector = new SvgImageSource { RasterizePixelWidth = requestedPixels, RasterizePixelHeight = requestedPixels };
                 var file = await StorageFile.GetFileFromPathAsync(path); using var input = await file.OpenReadAsync();
                 if (await vector.SetSourceAsync(input) != SvgImageSourceLoadStatus.Success) return null;
+                vectorPaths.Add(vector, path);
                 dimensions.Add(vector, new(requestedPixels, requestedPixels, requestedPixels, "SVG"));
                 Remember(key, vector); return vector;
             }
-            if ((thumbnail || imageFile) && File.Exists(path) && new[] { ".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp", ".ico" }.Contains(Path.GetExtension(path).ToLowerInvariant()))
+            if ((thumbnail || imageFile) && new[] { ".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp", ".ico" }.Contains(Path.GetExtension(path).ToLowerInvariant()))
             {
-                var file = await StorageFile.GetFileFromPathAsync(path); using var source = await file.OpenReadAsync();
-                var image = await Decode(source, requestedPixels, extension == ".ico", "Custom image"); Remember(key, image); return image;
+                try
+                {
+                    using var file = await Task.Run(() => new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete));
+                    using var source = file.AsRandomAccessStream();
+                    var image = await Decode(source, requestedPixels, extension == ".ico", "Custom image"); Remember(key, image); return image;
+                }
+                catch
+                {
+                    // A syncing or temporarily locked image must still reach
+                    // Shell icon fallback. Its thumbnail can be retried later.
+                    shellThumbnail = false;
+                }
             }
-            if (shellThumbnail && File.Exists(path))
+            if (shellThumbnail && await Task.Run(() => File.Exists(path)))
             {
                 try
                 {
@@ -334,6 +398,25 @@ internal static class IconService
         }
         catch { return null; }
     }
+    // USEFILEATTRIBUTES asks only for the extension's icon, without opening the capture.
+    public static async Task<ImageSource?> LoadFileTypeIcon(string path, int pixels)
+    {
+        var extension = Path.GetExtension(path);
+        var key = "filetype:" + extension + "|" + pixels;
+        if (cache.TryGetValue(key, out var cached)) return cached;
+        try
+        {
+            var bytes = await Task.Run(() => ReadFileIcon("file" + extension, true));
+            if (bytes == null) return null;
+            using var stream = new InMemoryRandomAccessStream();
+            using (var writer = new DataWriter(stream.GetOutputStreamAt(0))) { writer.WriteBytes(bytes); await writer.StoreAsync(); await writer.FlushAsync(); }
+            stream.Seek(0);
+            var result = await Decode(stream, pixels, false, "File type");
+            Remember(key, result);
+            return result;
+        }
+        catch { return null; }
+    }
     public static async Task<ImageSource?> LoadWindowIcon(nint window, int requestedPixels = 32)
     {
         requestedPixels = Math.Clamp(requestedPixels, 16, 128);
@@ -440,10 +523,10 @@ internal static class IconService
         }
         return ReadFileIcon(path);
     }
-    private static byte[]? ReadFileIcon(string path)
+    private static byte[]? ReadFileIcon(string path, bool fileType = false)
     {
         var info = new Native.SHFILEINFO { DisplayName = "", TypeName = "" };
-        if (Native.SHGetFileInfo(path, 0, ref info, (uint)Marshal.SizeOf<Native.SHFILEINFO>(), 0x100) == 0 || info.Icon == 0) return null;
+        if (Native.SHGetFileInfo(path, fileType ? 0x80u : 0u, ref info, (uint)Marshal.SizeOf<Native.SHFILEINFO>(), fileType ? 0x110u : 0x100u) == 0 || info.Icon == 0) return null;
         try { using var icon = System.Drawing.Icon.FromHandle(info.Icon); using var bitmap = icon.ToBitmap(); using var stream = new MemoryStream(); bitmap.Save(stream, System.Drawing.Imaging.ImageFormat.Png); return stream.ToArray(); }
         finally { Native.DestroyIcon(info.Icon); }
     }

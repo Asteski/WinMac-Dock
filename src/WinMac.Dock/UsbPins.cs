@@ -42,7 +42,6 @@ internal sealed partial class DockWindow
 
     private void SyncUsbPinning()
     {
-        if (Program.SeparatorAudit) return;
         var current = Settings.Items.Where(i => i.IsAutoUsbPin).Select(i => i.Id).ToHashSet();
         if (usbPinsObserved)
             foreach (var id in current.Where(id => !knownUsbPins.Contains(id))) pendingUsbBounces.Add(id);

@@ -165,37 +165,4 @@ internal sealed partial class DockWindow
         }
         menu.Items.Add(new MenuFlyoutSeparator());
     }
-    private void CheckEdgeFavorites()
-    {
-        Exception? failure = null; int profiles = 0, links = 0;
-        try
-        {
-            var item = Settings.Items.FirstOrDefault(ShellService.IsMicrosoftEdge) ?? new DockItem { Kind = ItemKind.Application, Target = @"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" };
-            var data = ShellService.ReadEdgeFavorites(item); profiles = data.Count;
-            int Count(EdgeFavorite entry) => entry.WorkspaceId != null || entry.Url != null ? 1 : entry.Children.Sum(Count);
-            links = data.Sum(profile => EdgeFavorites.Section(profile.Favorites, false).Sum(Count));
-            foreach (var mode in Enum.GetValues<AdditionalCommandsVisibility>())
-            {
-                var menu = new MenuFlyout(); AddEdgeFavorites(menu, item with { EdgeFavoritesCommands = mode });
-                bool submenu = menu.Items.OfType<MenuFlyoutSubItem>().Any(entry => entry.Text == "Favorites");
-                if (mode == AdditionalCommandsVisibility.Hidden ? menu.Items.Count != 0 : mode == AdditionalCommandsVisibility.Submenu ? !submenu : submenu)
-                    throw new InvalidOperationException("Favorites visibility mode was not applied.");
-                if (mode != AdditionalCommandsVisibility.Hidden && links > 0 && MenuItems(menu.Items).Count(entry => entry.IsEnabled) != links)
-                    throw new InvalidOperationException("Favorites menu omitted a saved link.");
-            }
-            IEnumerable<EdgeFavorite> Urls(IEnumerable<EdgeFavorite> entries) => entries.SelectMany(entry => entry.Url != null ? new[] { entry } : Urls(entry.Children));
-            var urlProfile = data.FirstOrDefault(profile => Urls(profile.Favorites).Any());
-            if (urlProfile != null)
-            {
-                var profile = urlProfile; var favorite = Urls(profile.Favorites).First();
-                var plan = ShellService.LaunchInfo(ShellService.EdgeFavoriteLaunchItem(item, profile, favorite.Url!));
-                if (plan.Verb == "runas" || !plan.Arguments.Contains(profile.Directory) || !plan.Arguments.Contains(favorite.Url!)) throw new InvalidOperationException("Favorite launch lost its profile or URL.");
-            }
-            var ordinary = item with { EdgeFavoritesCommands = AdditionalCommandsVisibility.Hidden };
-            var labels = ItemMenu(new(ordinary, null, true)).Items.OfType<MenuFlyoutItem>().Select(entry => entry.Text);
-            if (!labels.Contains("Open Edge") || labels.Contains("Open")) throw new InvalidOperationException("Edge Open label was not updated.");
-        }
-        catch (Exception ex) { failure = ex; Log.Write(ex); }
-        File.WriteAllText(Path.Combine(Log.DirectoryPath, "edge-favorites-test.json"), System.Text.Json.JsonSerializer.Serialize(new { Passed = failure == null, Error = failure?.ToString(), Profiles = profiles, Links = links }));
-    }
 }

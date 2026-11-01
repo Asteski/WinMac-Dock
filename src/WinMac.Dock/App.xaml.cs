@@ -58,23 +58,16 @@ public partial class App : Application
     }
     private static void CheckStartupRegistration()
     {
-        if (Program.SeparatorAudit || startupRegistrationChecked || Dock == null || !Dock.StartupComplete || secondaryDocks.Any(d => !d.StartupComplete)) return;
+        if (startupRegistrationChecked || Dock == null || !Dock.StartupComplete || secondaryDocks.Any(d => !d.StartupComplete)) return;
         startupRegistrationChecked = true;
         _ = Task.Run(() =>
         {
             try
             {
-                LoginStartup.MigrateLegacyEntry(Dock.Settings.StartAtLogin);
+                LoginStartup.EnsureConfigured(Dock.Settings.StartAtLogin);
             }
             catch (Exception ex) { Log.Write(ex); }
         });
-    }
-    internal static void WriteDisplayDiagnostics()
-    {
-        if (Dock == null) return;
-        var displays = Native.Monitors();
-        var docks = secondaryDocks.Prepend(Dock).Select(d => new { d.DisplayIdentity, Edge = d.PositionEdge, Alignment = d.PositionAlignment, d.StartupComplete, HideMode = d.DisplayHideMode, MagnificationEnabled = d.DisplayMagnificationEnabled, Bounds = Native.Bounds(d.Handle) }).ToArray();
-        File.WriteAllText(Path.Combine(Log.DirectoryPath, "display-layouts.json"), System.Text.Json.JsonSerializer.Serialize(new { Displays = displays.Select(m => new { m.Identity, m.Device, m.Label, m.Bounds, m.Work, m.Scale, m.Primary }), Docks = docks }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
     }
     internal static void SetDockVisibility(bool show, DockWindow source)
     {
@@ -94,16 +87,6 @@ public partial class App : Application
     }
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
-        if (Program.StartupCommand == "--test-folder-settings")
-        {
-            _ = FolderSettingsChecks.Run();
-            return;
-        }
-        if (Program.StartupCommand == "--test-flyout-icons")
-        {
-            _ = FolderIconChecks.Run();
-            return;
-        }
         Dock = new DockWindow();
         Program.CommandReceived += command => Dock.DispatcherQueue.TryEnqueue(() => Dock.HandleCommand(command));
         Dock.StartupReady += () => Dock.DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
@@ -121,7 +104,8 @@ public partial class App : Application
 
 internal static class Log
 {
-    public static readonly string DirectoryPath = Program.SeparatorAudit ? Path.Combine(AppContext.BaseDirectory, "separator-audit") : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WinMac", "Dock");
-    public static void Write(Exception ex) { try { Directory.CreateDirectory(DirectoryPath); File.AppendAllText(Path.Combine(DirectoryPath, "dock.log"), DateTimeOffset.Now + " " + ex + Environment.NewLine); } catch { } }
-    public static void Write(string message) { try { Directory.CreateDirectory(DirectoryPath); File.AppendAllText(Path.Combine(DirectoryPath, "dock.log"), DateTimeOffset.Now + " " + message + Environment.NewLine); } catch { } }
+    public static readonly string DirectoryPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WinMac", "Dock");
+    private static readonly RotatingLineLog file = new(Path.Combine(DirectoryPath, "WinMac.Dock.log"), legacyPath: Path.Combine(DirectoryPath, "dock.log"));
+    public static void Write(Exception ex) => Write(ex.ToString());
+    public static void Write(string message) { try { file.Write(DateTimeOffset.Now + " " + message); } catch { } }
 }

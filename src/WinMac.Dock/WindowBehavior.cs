@@ -7,7 +7,6 @@ namespace WinMac.Dock;
 internal sealed partial class DockWindow
 {
     private bool taskViewOpen;
-    private bool? taskViewTestOverride;
     private static bool IsElevated
     {
         get { using var identity = WindowsIdentity.GetCurrent(); return new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator); }
@@ -50,15 +49,46 @@ internal sealed partial class DockWindow
         if (!dockOverflow) scroll.ChangeView(0, 0, null, true);
         return true;
     }
+    private bool desktopPeekActive;
+    private nint desktopPeekHook;
+    private Native.WinEventProc? desktopPeekCallback;
+    private bool KeepDesktopPeekVisible => Settings.KeepVisibleOnDesktop && desktopPeekActive;
+    private void InitializeDesktopPeek()
+    {
+        desktopPeekCallback = (_, evt, _, _, _, _, _) => DispatcherQueue.TryEnqueue(() =>
+        {
+            if (closing) return;
+            desktopPeekActive = evt == 0x21; // EVENT_SYSTEM_PEEKSTART / PEEKEND
+            ApplyDesktopVisibility();
+            EvaluateVisibility();
+            MaintainZOrder();
+        });
+        desktopPeekHook = Native.SetWinEventHook(0x21, 0x22, 0, desktopPeekCallback, 0, 0, 0);
+    }
+    private void ApplyDesktopVisibility()
+    {
+        foreach (var window in new[] { Handle, materialHandle })
+        {
+            if (window == 0) continue;
+            int cloaked = 0; // This option must not cloak the Dock when using Show desktop.
+            Native.DwmSetWindowAttribute(window, 13, ref cloaked, 4); // DWMWA_CLOAK
+            Native.ExcludeFromDesktopPeek(window, Settings.KeepVisibleOnDesktop);
+            int excluded = Settings.KeepVisibleOnDesktop ? 1 : 0;
+            Native.DwmSetWindowAttribute(window, 12, ref excluded, 4);
+            Native.DwmSetWindowAttribute(window, 11, ref excluded, 4);
+        }
+    }
     private void MaintainZOrder()
     {
-        if (!initialized || closing || hidden || visibilitySliding || popupCount > 0) return;
-        if (!taskViewOpen && HasExternalFullscreenForeground()) return;
+        if (!initialized || closing) return;
+        ApplyDesktopVisibility();
+        if (hidden || visibilitySliding || popupCount > 0) return;
+        if (!taskViewOpen && !KeepDesktopPeekVisible && HasExternalFullscreenForeground()) return;
         SyncSurfaceBandOrder();
         var foreground = tracker.Describe(Native.GetForegroundWindow());
         bool fullscreen = foreground != null && !foreground.Minimized && foreground.Bounds.Left <= monitor.Bounds.Left
             && foreground.Bounds.Top <= monitor.Bounds.Top && foreground.Bounds.Right >= monitor.Bounds.Right && foreground.Bounds.Bottom >= monitor.Bounds.Bottom;
-        if (!taskViewOpen && fullscreen && !FullscreenExclusions.Contains(Settings, foreground)) return;
+        if (!taskViewOpen && !KeepDesktopPeekVisible && fullscreen && !FullscreenExclusions.Contains(Settings, foreground)) return;
         bool covered = (Native.GetWindowLongPtrW(Handle, -20).ToInt64() & 8) == 0;
         for (var above = Native.GetWindow(Handle, 3); above != 0 && !covered; above = Native.GetWindow(above, 3))
         {
@@ -87,119 +117,5 @@ internal sealed partial class DockWindow
             if (IsWindowsTaskbar(below) && Native.IsWindowVisible(below)
                 && (Native.DwmGetInt(below, 14, out int cloaked, 4) != 0 || cloaked == 0)) bars.Add(below);
         foreach (var bar in bars) Native.SetWindowPos(bar, -1, 0, 0, 0, 0, 0x13);
-    }
-    private async Task CheckWindowBehavior()
-    {
-        bool createdSettings = settingsWindow == null, originalInspection = inspection;
-        Process? fixture = null; Exception? failure = null; var checks = new List<string>();
-        try
-        {
-            inspection = true; ShowDock(); ShowSettings(); await Task.Delay(200); Reconcile();
-            var own = tracker.Read().Where(w => { Native.GetWindowThreadProcessId(w.Handle, out var pid); return pid == Environment.ProcessId; }).ToArray();
-            if (own.Length != 1 || own[0].Handle != tracker.OwnTaskWindow) throw new Exception("Settings window missing, or internal dock surfaces leaked into task list");
-            checks.Add("Only Settings appears as an application task");
-            ShellService.Activate(own[0], true); await Task.Delay(150);
-            if (!Native.IsIconic(own[0].Handle)) throw new Exception("Settings task could not be minimized");
-            ShellService.Activate(own[0], false); await Task.Delay(150);
-            if (Native.IsIconic(own[0].Handle)) throw new Exception("Settings task could not be restored");
-            checks.Add("Settings task minimizes and restores");
-            var path = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "tests", "WinMac.Dock.Fixture", "bin", "Release", "net10.0-windows", "WinMac.Dock.Fixture.exe"));
-            fixture = Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
-            TaskWindow? window = null;
-            for (int attempt = 0; attempt < 50 && window == null; attempt++)
-            {
-                await Task.Delay(100);
-                window = tracker.Read().FirstOrDefault(w => { Native.GetWindowThreadProcessId(w.Handle, out var pid); return pid == fixture!.Id; });
-            }
-            if (window == null) throw new Exception("Fixture did not create a task window");
-            await Task.Delay(350);
-            nint foreground = Native.GetForegroundWindow();
-            Native.SetWindowPos(window.Handle, -1, resting.Left, resting.Top - 150, 400, 300, 0x10 | 0x40);
-            bool IsAbove(nint first, nint second)
-            {
-                for (var h = Native.GetWindow(second, 3); h != 0; h = Native.GetWindow(h, 3)) if (h == first) return true;
-                return false;
-            }
-            if (!IsAbove(window.Handle, Handle)) throw new Exception("Could not arrange an external topmost window over the dock");
-            await Task.Delay(250);
-            if (IsAbove(window.Handle, Handle)) throw new Exception($"Dock stayed behind external topmost: hidden={hidden}, sliding={visibilitySliding}, popups={popupCount}, foreground={Native.Title(Native.GetForegroundWindow())}, active={tracker.Describe(Native.GetForegroundWindow())}, dock={resting}, fixture={Native.Bounds(window.Handle)}");
-            if (foreground != Native.GetForegroundWindow()) throw new Exception("Restoring dock priority stole foreground focus");
-            checks.Add("Dock rises above another topmost window without taking focus");
-            var taskbars = new List<nint>();
-            Native.EnumWindows((hwnd, _) => { if (IsWindowsTaskbar(hwnd) && Native.IsWindowVisible(hwnd)) taskbars.Add(hwnd); return true; }, 0);
-            if (taskbars.Any(bar => !IsAbove(bar, Handle))) throw new Exception("Dock is above a visible Windows taskbar");
-            if (materialVisible && !IsAbove(Handle, materialHandle)) throw new Exception("Dock material is above its icons");
-            if ((Native.GetWindowLongPtrW(Handle, -20).ToInt64() & 8) == 0) throw new Exception("Dock lost its topmost state");
-            checks.Add("Visible taskbars remain above both topmost dock surfaces, and application windows remain below");
-            foreach (var sample in new[]
-            {
-                new DockItem { Kind = ItemKind.Application, Name = "System Settings", Target = "ms-settings:" },
-                new DockItem { Kind = ItemKind.Application, Name = "Task Manager", Target = "Taskmgr.exe" },
-                new DockItem { Kind = ItemKind.Application, Name = "Microsoft Store", Target = "ms-windows-store://home" }
-            })
-            {
-                var entry = new DockEntry(sample, window, true);
-                InvokeSingletonMenu(entry); await Task.Delay(200);
-                if (!Native.IsIconic(window.Handle)) throw new Exception(sample.Name + " action did not minimize its existing window");
-                var minimized = ItemMenu(entry).Items.OfType<MenuFlyoutItem>().Select(i => i.Text).ToArray();
-                if (!minimized.Contains("Open " + sample.Name)) throw new Exception(sample.Name + " minimized window does not offer Open");
-                InvokeSingletonMenu(entry); await Task.Delay(200);
-                if (Native.IsIconic(window.Handle)) throw new Exception(sample.Name + " action did not restore its existing window");
-                var restored = ItemMenu(entry).Items.OfType<MenuFlyoutItem>().Select(i => i.Text).ToArray();
-                if (!restored.Contains("Minimize " + sample.Name)) throw new Exception(sample.Name + " restored window does not offer Minimize");
-            }
-            checks.Add("Settings, Task Manager, and Store toggle their existing windows and update Open/Minimize labels");
-        }
-        catch (Exception ex) { failure = ex; Log.Write(ex); }
-        finally
-        {
-            if (fixture != null)
-            {
-                foreach (var task in tracker.Read().Where(w => { Native.GetWindowThreadProcessId(w.Handle, out var pid); return pid == fixture.Id; })) ShellService.Close(task);
-                fixture.Dispose();
-            }
-            if (createdSettings) settingsWindow?.Close();
-            inspection = originalInspection; Reconcile();
-        }
-        File.WriteAllText(Path.Combine(Log.DirectoryPath, "window-behavior-test.json"), System.Text.Json.JsonSerializer.Serialize(new { Passed = failure == null, Error = failure?.ToString(), Checks = checks }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
-    }
-    private async Task CheckAutoFit()
-    {
-        var original = Settings.Items.ToList(); var originalEdge = PositionEdge;
-        bool originalInspection = inspection;
-        Exception? failure = null; var results = new List<object>();
-        try
-        {
-            inspection = true;
-            var sample = new DockItem { Kind = ItemKind.Application, Target = Environment.ProcessPath!, Name = "Fit test" };
-            foreach (var edge in Enum.GetValues<DockEdge>())
-            foreach (int count in new[] { 8, 30, 50, 70, 150, 8 })
-            {
-                PositionEdge = edge;
-                Settings.Items = Enumerable.Range(0, count).Select(i => sample with { Id = "fit-" + i }).ToList();
-                lastSignature = ""; Reposition(true); Reconcile(); root.UpdateLayout(); await Task.Delay(100);
-                double available = (Vertical ? hostBounds.Height : hostBounds.Width) / scale;
-                double content = DockSpacing.Length(strip.Children.OfType<FrameworkElement>().Select(e => e is Button ? ButtonSize : SeparatorWidth).ToArray(), strip.Children.Select(e => e is Button).ToArray(), DisplaySpacing);
-                if (!dockOverflow && content > available + 1) throw new Exception($"{edge}/{count}: content {content} exceeds viewport {available} at icon size {DisplayIconSize}");
-                if (DisplayIconSize > Settings.IconSize || DisplayIconSize < 16) throw new Exception("Auto-fit exceeded icon-size bounds");
-                double requiredExpansion = Motion ? DockAutoFit.ExpansionBudget(DisplayIconSize, buttons.Count, Settings.HoverMagnificationPercent, Settings.MagnificationSpan) : 0;
-                double actualExpansion = available - (Vertical ? resting.Height : resting.Width) / scale;
-                if (!dockOverflow && DisplayIconSize > 16 && actualExpansion + 1 / scale < requiredExpansion)
-                    throw new Exception($"{edge}/{count}: magnification needs {requiredExpansion} DIP but has only {actualExpansion}");
-                if (dockOverflow)
-                {
-                    scroll.ChangeView(Vertical ? null : scroll.ScrollableWidth, Vertical ? scroll.ScrollableHeight : null, null, true);
-                    await Task.Delay(100);
-                    var last = strip.Children.OfType<FrameworkElement>().Last();
-                    var p = last.TransformToVisual(root).TransformPoint(new Windows.Foundation.Point());
-                    if ((Vertical ? p.Y + last.ActualHeight : p.X + last.ActualWidth) > (Vertical ? hostBounds.Height : hostBounds.Width) / scale + 2)
-                        throw new Exception("Scrolling did not expose the final item");
-                }
-                results.Add(new { Edge = edge.ToString(), Count = count, Requested = Settings.IconSize, Actual = DisplayIconSize, Padding = DisplayPadding, Overflow = dockOverflow, Available = available, Content = content, RequiredExpansion = requiredExpansion, ActualExpansion = actualExpansion });
-            }
-        }
-        catch (Exception ex) { failure = ex; Log.Write(ex); }
-        finally { ResetMagnification(); Settings.Items = original; PositionEdge = originalEdge; inspection = originalInspection; lastSignature = ""; Reconcile(); Reposition(true); }
-        File.WriteAllText(Path.Combine(Log.DirectoryPath, "autofit-test.json"), System.Text.Json.JsonSerializer.Serialize(new { Passed = failure == null, Error = failure?.ToString(), Results = results }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
     }
 }

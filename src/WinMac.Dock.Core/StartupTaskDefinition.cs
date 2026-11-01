@@ -5,7 +5,8 @@ namespace WinMac.Dock.Core;
 public static class StartupTaskDefinition
 {
     public const string Arguments = "--startup --logon-task";
-    public static string NameForUser(string sid) => "WinMac Dock - " + sid;
+    public const string Name = "WinMac Dock";
+    public static string LegacyNameForUser(string sid) => "WinMac Dock - " + sid;
 
     public static string CreateXml(string executable, string sid)
     {

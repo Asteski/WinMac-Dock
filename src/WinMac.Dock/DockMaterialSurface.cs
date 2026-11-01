@@ -13,7 +13,6 @@ internal sealed partial class DockWindow
     private Native.SubclassProc? materialSubclass;
     private PixelRect materialHostBounds;
     private bool materialVisible;
-    private long materialWindowMoves;
     private uint orderedSurfaceBand;
     private readonly Canvas hoverArtwork = new() { IsHitTestVisible = false };
     private bool HoverEnvelope => Motion && !dockOverflow;
@@ -109,8 +108,8 @@ internal sealed partial class DockWindow
         // Width/Margin changes otherwise wait until a later XAML layout pass,
         // while the icon composition transforms are submitted immediately.
         dockBorder.UpdateLayout();
-        // The material HWND follows the visible panel. DWM owns its rounded
-        // corners and shadow; a window region would disable that shadow.
+        // The material HWND follows the visible panel. Without a custom
+        // region, DWM supplies both rounded corners and its native shadow.
         var surface = panel;
         if (visibilitySliding)
         {
@@ -123,7 +122,7 @@ internal sealed partial class DockWindow
         if (materialHostBounds != surface || !materialVisible)
         {
             materialHostBounds = surface;
-            materialWindowMoves++;
+            
             // Match the new viewport now rather than waiting for the WinUI
             // window-size notification after SetWindowPos.
             materialRoot!.Width = surface.Width / scale;

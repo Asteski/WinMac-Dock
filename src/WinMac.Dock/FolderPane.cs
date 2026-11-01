@@ -25,10 +25,14 @@ internal sealed class FolderPane : UserControl, IDisposable
     private CancellationTokenSource? cancellation;
     private readonly string path;
     private string? listingError;
-    private bool ShowHeading => item.Folder.View != FolderView.Grid || !(item.Folder.HideFolderNameInGrid ?? false);
-    private double HeadingHeight => ShowHeading ? 58 : 0; // 32-DIP header + equal 13-DIP top/bottom insets.
+    private bool ShowHeading => !(item.Folder.HideFolderNameInGrid ?? false);
+    private const double HeaderHeight = 63;
+    private double HeadingHeight => ShowHeading ? HeaderHeight : 0; // Includes the one-DIP divider below the header.
+    private readonly Microsoft.UI.Xaml.Controls.Image materialGrain = new() { IsHitTestVisible = false, Stretch = Microsoft.UI.Xaml.Media.Stretch.Fill, Opacity = .5 };
+    private (int Width, int Height) grainSize;
     private readonly Grid header = new();
     private readonly Border headerSurface = new();
+    private readonly Border bodySurface = new() { CornerRadius = new CornerRadius(0, 0, 8, 8) };
     private readonly Border surface = new() { CornerRadius = new CornerRadius(8) };
     private bool disposed;
     private bool initialGridScrollApplied;
@@ -60,7 +64,7 @@ internal sealed class FolderPane : UserControl, IDisposable
         // The scrollbar track supplies the right inset; do not also reserve
         // another full padding inset beside it.
         Width = gridView ? gridWidth + 16 + 18 : Math.Min(490, owner.AvailablePopupWidth) + 32;
-        double paneHeight = gridView ? Math.Min(owner.AvailableFolderPopupHeight, gridRows * gridCellHeight + 32 + HeadingHeight) : owner.AvailablePopupHeight;
+        double paneHeight = gridView ? Math.Min(owner.AvailableFolderPopupHeight, gridRows * gridCellHeight + 32 + HeaderHeight) : owner.AvailablePopupHeight;
         MaxHeight = paneHeight;
         if (gridView) Height = paneHeight;
         root.Padding = gridView ? new Thickness(16, 16, 0, 16) : new Thickness(16);
@@ -71,7 +75,7 @@ internal sealed class FolderPane : UserControl, IDisposable
             VerticalScrollMode = ScrollMode.Enabled,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             HorizontalScrollMode = ScrollMode.Disabled,
-            MaxHeight = paneHeight
+            MaxHeight = Math.Max(1, paneHeight - HeadingHeight)
         };
         if (gridView)
         {
@@ -106,14 +110,14 @@ internal sealed class FolderPane : UserControl, IDisposable
         header.Visibility = heading.Visibility;
         root.Padding = gridView ? new Thickness(0) : new Thickness(16, 0, 16, 16);
         heading.Margin = new Thickness(0, 0, 8, 0);
-        header.Height = 32; header.Margin = new Thickness(16, 13, 16, 13); header.ColumnSpacing = 4;
+        header.Height = 32; header.Margin = new Thickness(20, 15, 16, 15); header.ColumnSpacing = 4;
         header.Visibility = ShowHeading ? Visibility.Visible : Visibility.Collapsed;
         header.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
         header.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         header.Children.Add(heading);
         var openFolder = new Button
         {
-            Content = new FontIcon { Glyph = "\uED25", FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Segoe Fluent Icons"), FontSize = 16 },
+            Content = new FontIcon { Glyph = DockWindow.IsDownloads(item) ? "\uE838" : "\uED25", FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Segoe Fluent Icons"), FontSize = 16 },
             VerticalAlignment = VerticalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center,
             Width = 32, Height = 32, Padding = new Thickness(8), BorderThickness = new Thickness(0), CornerRadius = new CornerRadius(4),
             Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent)
@@ -134,8 +138,19 @@ internal sealed class FolderPane : UserControl, IDisposable
         headerSurface.Child = header;
         headerSurface.Visibility = header.Visibility;
         layout.Children.Add(headerSurface);
-        Grid.SetRow(Scroller, 1); layout.Children.Add(Scroller);
-        surface.Child = layout;
+        bodySurface.Child = Scroller;
+        Grid.SetRow(bodySurface, 1); layout.Children.Add(bodySurface);
+        var layers = new Grid();
+        layers.Children.Add(layout);
+        // Decorative pixels must not participate in desired-size measurement.
+        // A bitmap at physical-pixel resolution otherwise enlarges the pane at
+        // fractional DPI and can push its last rows past the popup bottom.
+        var textureLayer = new Canvas { IsHitTestVisible = false };
+        textureLayer.Children.Add(materialGrain);
+        layers.Children.Add(textureLayer);
+        surface.Child = layers;
+        SizeChanged += (_, _) => UpdateMaterialGrain();
+        Loaded += (_, _) => UpdateMaterialGrain();
         Content = surface;
         ApplyGridColors();
         ActualThemeChanged += (_, _) => ApplyGridColors();
@@ -158,7 +173,7 @@ internal sealed class FolderPane : UserControl, IDisposable
             finally { deferral.Complete(); }
         };
         refresh.Tick += async (_, _) => { refresh.Stop(); await Reload(); };
-        Loaded += async (_, _) => await PrepareAsync();
+        Loaded += async (_, _) => { await PrepareAsync(); FitListHeight(); };
     }
     private async Task Reload()
     {
@@ -192,7 +207,7 @@ internal sealed class FolderPane : UserControl, IDisposable
             int rows = Math.Max(1, (int)Math.Ceiling(entries.Count / (double)columns));
             const double topInset = 16;
             const double bottomInset = 16;
-            double reservedHeight = HeadingHeight + topInset + bottomInset;
+            double reservedHeight = HeaderHeight + topInset + bottomInset;
             int visibleRows = FolderGridLayout.VisibleRows(rows, item.Folder.GridRows,
                 owner.AvailableFolderPopupHeight, reservedHeight, gridCellHeight);
             // The viewport contains exactly N cells; its insets stay outside
@@ -200,7 +215,7 @@ internal sealed class FolderPane : UserControl, IDisposable
             Height = visibleRows * gridCellHeight + reservedHeight;
             MaxHeight = Height;
             Scroller.Margin = new Thickness(16, topInset, 0, bottomInset);
-            Scroller.MaxHeight = visibleRows * gridCellHeight;
+            Scroller.MaxHeight = Height - HeadingHeight - topInset - bottomInset;
         }
         root.Spacing = compactGrid ? 0 : 10;
         heading.Visibility = ShowHeading ? Visibility.Visible : Visibility.Collapsed;
@@ -237,10 +252,10 @@ internal sealed class FolderPane : UserControl, IDisposable
         ScrollViewer.SetHorizontalScrollBarVisibility(list, ScrollBarVisibility.Disabled);
         // Only the outer ScrollViewer scrolls a grid. Its content owns the
         // padding, so its scrollbar stays against the flyout's right edge.
-        ScrollViewer.SetVerticalScrollMode(list, grid ? ScrollMode.Disabled : ScrollMode.Enabled);
-        ScrollViewer.SetVerticalScrollBarVisibility(list, grid ? ScrollBarVisibility.Disabled : ScrollBarVisibility.Auto);
+        ScrollViewer.SetVerticalScrollMode(list, ScrollMode.Disabled);
+        ScrollViewer.SetVerticalScrollBarVisibility(list, ScrollBarVisibility.Disabled);
         if (grid) list.ItemsPanel = (ItemsPanelTemplate)XamlReader.Load($"<ItemsPanelTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'><ItemsWrapGrid UseLayoutRounding='False' Orientation='Horizontal' ItemWidth='{gridCellWidth.ToString(System.Globalization.CultureInfo.InvariantCulture)}' ItemHeight='{gridCellHeight}' MaximumRowsOrColumns='{gridColumns}'/></ItemsPanelTemplate>");
-        list.MaxHeight = grid ? double.PositiveInfinity : Math.Max(100, owner.AvailablePopupHeight - (compactGrid ? 20 : 160)); list.SelectionMode = ListViewSelectionMode.Single; list.IsItemClickEnabled = true;
+        list.MaxHeight = double.PositiveInfinity; list.SelectionMode = ListViewSelectionMode.Single; list.IsItemClickEnabled = true;
         list.CanDragItems = true;
         var template = grid
             ? $"<DataTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'><StackPanel Width='{gridCellWidth}' Height='{gridCellHeight}' Padding='6' Spacing='5'><Image Width='{iconSize}' Height='{iconSize}'/><TextBlock Text='{{Binding DisplayLabel}}' FontSize='12' Height='34' TextAlignment='Center' TextTrimming='CharacterEllipsis' MaxLines='2' TextWrapping='Wrap'/></StackPanel></DataTemplate>"
@@ -288,11 +303,13 @@ internal sealed class FolderPane : UserControl, IDisposable
             foreach (var row in entries) list.Items.Add(row);
             loaded = entries.Count;
         }
+        else if (DockWindow.IsDownloads(item) && !item.Folder.Descending) { foreach (var row in entries) list.Items.Add(row); loaded = entries.Count; }
         else AddPage();
         var more = new Button { Content = "Load more", HorizontalAlignment = HorizontalAlignment.Stretch, Visibility = loaded < entries.Count ? Visibility.Visible : Visibility.Collapsed };
-        more.Click += (_, _) => { AddPage(); more.Visibility = loaded < entries.Count ? Visibility.Visible : Visibility.Collapsed; };
+        more.Click += (_, _) => { AddPage(); more.Visibility = loaded < entries.Count ? Visibility.Visible : Visibility.Collapsed; FitListHeight(); };
         container.Children.Add(more); body.Content = container;
-        if (grid && !initialGridScrollApplied && DockWindow.IsDownloads(item) && !item.Folder.Descending && entries.Count > 0)
+        FitListHeight();
+        if (!initialGridScrollApplied && DockWindow.IsDownloads(item) && !item.Folder.Descending && entries.Count > 0)
         {
             var initialList = list;
             initialList.Loaded += (_, _) => DispatcherQueue.TryEnqueue(() =>
@@ -304,20 +321,53 @@ internal sealed class FolderPane : UserControl, IDisposable
             });
         }
     }
+    private void FitListHeight()
+    {
+        if (disposed || item.Folder.View != FolderView.List) return;
+        // Match Grid view for the same folder, row setting, and screen limits.
+        int rows = Math.Max(1, (int)Math.Ceiling(entries.Count / (double)gridColumns));
+        double reservedHeight = HeaderHeight + 32;
+        int visibleRows = FolderGridLayout.VisibleRows(rows, item.Folder.GridRows,
+            owner.AvailableFolderPopupHeight, reservedHeight, gridCellHeight);
+        Height = visibleRows * gridCellHeight + reservedHeight;
+        MaxHeight = Height;
+        Scroller.MaxHeight = Math.Max(1, Height - HeadingHeight);
+    }
+    private void UpdateMaterialGrain()
+    {
+        bool show = owner.DefaultMaterialGrainEnabled;
+        materialGrain.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        if (!show || ActualWidth <= 0 || ActualHeight <= 0 || XamlRoot == null) return;
+        double scale = XamlRoot.RasterizationScale;
+        int width = Math.Max(1, (int)Math.Ceiling(ActualWidth * scale));
+        int height = Math.Max(1, (int)Math.Ceiling(ActualHeight * scale));
+        materialGrain.Width = ActualWidth;
+        materialGrain.Height = ActualHeight;
+        if (grainSize == (width, height)) return;
+        materialGrain.Source = DockWindow.CreateMaterialGrain(width, height);
+        grainSize = (width, height);
+    }
     private void ApplyGridColors()
     {
-        if (item.Folder.View != FolderView.Grid)
-        {
-            surface.Background = null;
-            headerSurface.Background = null;
-            return;
-        }
+        UpdateMaterialGrain();
         bool dark = ActualTheme == ElementTheme.Dark;
         byte headerShade = dark ? (byte)0x1c : (byte)0xee;
         byte bodyShade = dark ? (byte)0x24 : (byte)0xf2;
-        headerSurface.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, headerShade, headerShade, headerShade));
+        bool acrylic = owner.Settings.Material == DockMaterial.Default && new Windows.UI.ViewManagement.UISettings().AdvancedEffectsEnabled
+            && !new Windows.UI.ViewManagement.AccessibilitySettings().HighContrast;
+        // Retain separate header/body tints without covering the native acrylic grain.
+        byte headerAlpha = acrylic ? (byte)0 : (byte)255;
+        byte bodyAlpha = acrylic ? (byte)64 : (byte)255;
+        // A light overlay shifts Base acrylic from 1c to 24 (dark) / ee to f2
+        // (light), while keeping most of its native grain and translucency.
+        if (acrylic) bodyShade = dark ? (byte)0x3c : (byte)0xff;
+        headerSurface.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(headerAlpha, headerShade, headerShade, headerShade));
+        byte divider = dark ? (byte)0x19 : (byte)0xe0;
+        headerSurface.BorderBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, divider, divider, divider));
+        headerSurface.BorderThickness = new Thickness(0, 0, 0, 1);
         headerSurface.CornerRadius = new CornerRadius(8, 8, 0, 0);
-        surface.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, bodyShade, bodyShade, bodyShade));
+        surface.Background = null;
+        bodySurface.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(bodyAlpha, bodyShade, bodyShade, bodyShade));
     }
     private void AddPage() { if (list == null) return; foreach (var row in entries.Skip(loaded).Take(100)) list.Items.Add(row); loaded = Math.Min(entries.Count, loaded + 100); }
     private void ConfigureHighlight(GridViewItem cell)
@@ -346,7 +396,7 @@ internal sealed class FolderPane : UserControl, IDisposable
         var menu = new MenuFlyout();
         owner.StyleMenu(menu);
         var open = new MenuFlyoutItem { Text = "Open", Icon = DockWindow.Glyph(row.IsFolder ? "\uE8DA" : "\uE8E5") }; open.Click += (_, _) => owner.TryAction(() => ShellService.Open(row.Path)); menu.Items.Add(open);
-        var downloads = new MenuFlyoutItem { Text = DockWindow.IsDownloads(item) ? "Open Downloads folder" : "Open containing folder", Icon = DockWindow.Glyph("\uED25") };
+        var downloads = new MenuFlyoutItem { Text = DockWindow.IsDownloads(item) ? "Open Downloads folder" : "Open containing folder", Icon = DockWindow.Glyph(DockWindow.IsDownloads(item) ? "\uE838" : "\uED25") };
         downloads.Click += (_, _) => owner.TryAction(() => ShellService.Open(item.Target));
         menu.Items.Add(downloads);
         var pin = new MenuFlyoutItem { Text = "Pin to dock", Icon = DockWindow.Glyph("\uE718") }; pin.Click += (_, _) => owner.PinFromFolder(ShellService.FromPath(row.Path)); menu.Items.Add(pin); return menu;

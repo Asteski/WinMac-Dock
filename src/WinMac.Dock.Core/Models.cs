@@ -41,6 +41,7 @@ public enum CapturePinKind { None, Screenshot, Recording }
 
 public sealed record SnippingOptions
 {
+    public AdditionalCommandsVisibility FoldersCommands { get; set; }
     public bool PinNewCaptures { get; set; }
     public bool UnpinAfterOpening { get; set; } = true;
     public int PinLimit { get; set; } = 5;
@@ -86,6 +87,7 @@ public sealed record FolderOptions
 public sealed record DockItem
 {
     public AdditionalCommandsVisibility AdditionalCommands { get; set; }
+    public AdditionalCommandsVisibility XboxGamesCommands { get; set; } = AdditionalCommandsVisibility.Submenu;
     public AdditionalCommandsVisibility EdgeWorkspacesCommands { get; set; } = AdditionalCommandsVisibility.Submenu;
     public AdditionalCommandsVisibility EdgeProfilesCommands { get; set; } = AdditionalCommandsVisibility.Submenu;
     public AdditionalCommandsVisibility EdgeFavoritesCommands { get; set; } = AdditionalCommandsVisibility.Submenu;
@@ -132,6 +134,7 @@ public sealed record DisplayDockLayout
 
 public sealed record DockSettings
 {
+    public bool KeepVisibleOnDesktop { get; set; } = true;
     public Dictionary<string, DockItem> RememberedItemProperties { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public int Version { get; set; } = 1;
     public int IconSize { get; set; } = 32;
@@ -181,6 +184,7 @@ public sealed record DockSettings
     public bool CombinePinnedIconsWithRunningApplications { get; set; } = true;
     public bool ShowItemsFromAllVirtualDesktops { get; set; }
     public bool ShowInTaskView { get; set; }
+    public bool RequireShiftToDragRemove { get; set; } = true;
     public bool LockIconPositions { get; set; }
     public int IconSpacing { get; set; } = 6;
     public DockTheme Theme { get; set; } = DockTheme.System;
@@ -292,6 +296,7 @@ public sealed record DockSettings
         foreach (var item in Items)
         {
             if (string.IsNullOrWhiteSpace(item.Id) || !ids.Add(item.Id)) { item.Id = Guid.NewGuid().ToString("N"); ids.Add(item.Id); }
+            if (!Enum.IsDefined(item.XboxGamesCommands)) item.XboxGamesCommands = AdditionalCommandsVisibility.Submenu;
             if (!Enum.IsDefined(item.EdgeFavoritesCommands)) item.EdgeFavoritesCommands = AdditionalCommandsVisibility.Submenu;
             item.Folder ??= new();
             item.Snipping ??= new(); item.Snipping.PinLimit = Math.Clamp(item.Snipping.PinLimit, 1, 9);

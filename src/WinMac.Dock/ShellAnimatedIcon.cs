@@ -35,7 +35,6 @@ internal sealed class ShellAnimatedIcon : IDisposable
     private string lastTransition = "";
     private PixelRect? bounds;
     public nint Handle => surface.Handle;
-    public object Diagnostics => new { Window = Handle.ToInt64(), State = state, RequestedState = requestedState, Transition = lastTransition, Playing = playback != null, Bounds = bounds, TimelineSeconds = duration, MarkerCount = markers.Count };
 
     public ShellAnimatedIcon(nint parent, ItemKind kind, bool dark)
     {

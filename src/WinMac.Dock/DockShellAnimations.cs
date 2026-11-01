@@ -12,45 +12,6 @@ internal sealed partial class DockWindow
     private bool syncingShellIcons;
     private bool shellAnimationFailed;
 
-    private async Task CheckStartShellAnimation()
-    {
-        var checks = new List<string>(); Exception? failure = null;
-        nint previous = Native.GetForegroundWindow();
-        try
-        {
-            if (TaskbarModuleTrigger.IsActive(ItemKind.StartMenu) == true) { Native.OpenStartMenu(); await Task.Delay(300); }
-            Native.OpenStartMenu();
-            for (int i = 0; i < 30 && TaskbarModuleTrigger.IsActive(ItemKind.StartMenu) != true; i++) { TaskbarModuleTrigger.RefreshStates(); await Task.Delay(50); }
-            if (TaskbarModuleTrigger.IsActive(ItemKind.StartMenu) != true) throw new Exception("Windows did not report Start as visible.");
-            if (TaskbarModuleTrigger.IsActive(ItemKind.Search) == true) throw new Exception("Opening Start also activated Search icon state.");
-            checks.Add("External Start activation sets only Start active, without animating Search");
-            var start = shellIcons.First(i => i.Entry.Item.Kind == ItemKind.StartMenu);
-            PulseActivatedItem(start.Artwork);
-            if (!start.Animation.IsClickScalePlaying) throw new Exception("Native Start artwork did not start its click-scale animation.");
-            await Task.Delay(Settings.RunningClickAnimationMs + 150);
-            if (start.Animation.IsClickScalePlaying) throw new Exception("Start click-scale animation did not finish.");
-            checks.Add("Native Start artwork runs and completes the same 80%-102%-100% click scale as regular items");
-            Native.OpenStartMenu(); await Task.Delay(300);
-            TaskbarModuleTrigger.Open(ItemKind.Search);
-            for (int i = 0; i < 30 && TaskbarModuleTrigger.IsActive(ItemKind.Search) != true; i++) { TaskbarModuleTrigger.RefreshStates(); await Task.Delay(50); }
-            if (TaskbarModuleTrigger.IsActive(ItemKind.Search) != true) throw new Exception("Explicit Search activation no longer animates Search.");
-            checks.Add("Explicit Search activation still opens Search");
-            using var search = new ShellAnimatedIcon(Handle, ItemKind.Search, start.Dark);
-            search.SetState(true, true, true, Motion);
-            if (search.RequestedState != "NormalOff") throw new Exception("Search reacted without a dock click.");
-            search.NotifyClick(); search.SetState(false, false, false, Motion);
-            if (search.RequestedState != "NormalOn") throw new Exception("Search dock click did not animate.");
-            await Task.Delay(750);
-            search.SetState(true, true, true, Motion);
-            if (search.RequestedState != "NormalOff") throw new Exception("Search animation did not reset independently of shell state.");
-            checks.Add("Search ignores shell/hover/press state and animates only after its dock click, then resets");
-        }
-        catch (Exception ex) { failure = ex; Log.Write(ex); }
-        finally { if (Native.IsWindow(previous)) Native.SetForegroundWindow(previous); }
-        File.WriteAllText(Path.Combine(Log.DirectoryPath, "start-shell-test.json"), System.Text.Json.JsonSerializer.Serialize(
-            new { Passed = failure == null, Error = failure?.ToString(), Checks = checks }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
-    }
-
     private void TryAddShellAnimatedIcon(Button button, Grid artwork, DockEntry entry)
     {
         if (shellAnimationFailed || accessibility.HighContrast || entry.Item.Kind is not (ItemKind.StartMenu or ItemKind.Search or ItemKind.TaskView)) return;

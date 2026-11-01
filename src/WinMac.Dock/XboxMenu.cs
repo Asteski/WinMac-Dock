@@ -31,6 +31,65 @@ internal sealed partial class DockWindow
         ("Install queue", "xbox://installs/", "\uE47D", xboxFont)
     ];
 
+    private void AddXboxSections(MenuFlyout menu, DockItem item)
+    {
+        foreach (var section in new[] { (Mode: item.AdditionalCommands, Label: "Categories", Games: false), (Mode: item.XboxGamesCommands, Label: "Games", Games: true) }.OrderBy(s => s.Mode))
+        {
+            if (section.Mode == AdditionalCommandsVisibility.Hidden) continue;
+            IList<MenuFlyoutItemBase> target = menu.Items;
+            if (section.Mode == AdditionalCommandsVisibility.Submenu)
+            {
+                var submenu = new MenuFlyoutSubItem { Text = section.Label };
+                if (section.Games && Settings.ShowMenuGlyphs) submenu.Icon = Glyph("\uE7FC");
+                menu.Items.Add(submenu); target = submenu.Items;
+            }
+            if (section.Games)
+            {
+                var loading = new MenuFlyoutItem { Text = "Loading installed games�", IsEnabled = false };
+                target.Add(loading); PopulateXboxGames(target, loading);
+            }
+            else
+            {
+                var content = new MenuFlyout(); AddXboxCommands(content);
+                var entries = content.Items.ToArray(); content.Items.Clear();
+                foreach (var entry in entries) target.Add(entry);
+            }
+            menu.Items.Add(new MenuFlyoutSeparator());
+        }
+    }
+    private async void PopulateXboxGames(IList<MenuFlyoutItemBase> target, MenuFlyoutItem loading)
+    {
+        try
+        {
+            var result = await XboxInstalledGames.ReadAsync();
+            int index = target.IndexOf(loading);
+            if (closing || index < 0) return;
+            target.RemoveAt(index);
+            if (result.Games.Count == 0)
+            {
+                target.Insert(index, new MenuFlyoutItem { Text = result.Error ?? "No installed games found", IsEnabled = false });
+                return;
+            }
+            foreach (var game in result.Games)
+            {
+                var entry = new MenuFlyoutItem { Text = game.Name };
+                entry.Click += (_, _) => TryAction(() => ShellService.Launch(new DockItem { Kind = ItemKind.Application, Name = game.Name, Target = game.LaunchTarget, Arguments = game.Arguments, WorkingDirectory = game.WorkingDirectory ?? "" }));
+                if (Settings.ShowMenuGlyphs && !string.IsNullOrEmpty(game.AppId))
+                {
+                    var icon = new ImageIcon(); entry.Icon = icon;
+                    _ = LoadXboxGameIcon(icon, game);
+                }
+                target.Insert(index++, entry);
+            }
+        }
+        catch (Exception ex) { Log.Write(ex); if (target.Contains(loading)) loading.Text = "Installed games could not be read"; }
+    }
+    private async Task LoadXboxGameIcon(ImageIcon icon, InstalledXboxGame game)
+    {
+        try { icon.Source = await IconService.Load(game.IconPath ?? game.LaunchTarget, requestedPixels: 20); }
+        catch (Exception ex) { Log.Write(ex); }
+    }
+
     private void AddXboxCommands(MenuFlyout menu)
     {
         foreach (var command in xboxCommands)

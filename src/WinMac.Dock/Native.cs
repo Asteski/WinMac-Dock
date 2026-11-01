@@ -154,6 +154,22 @@ internal static class Native
     [DllImport("user32.dll")] public static extern bool DestroyIcon(nint icon);
     [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(nint hwnd, uint attribute, out RECT value, int size);
     [DllImport("dwmapi.dll",EntryPoint="DwmGetWindowAttribute")] public static extern int DwmGetInt(nint hwnd, uint attribute, out int value, int size);
+    [StructLayout(LayoutKind.Sequential)]
+    private struct WindowCompositionAttributeData
+    {
+        public int Attribute;
+        public nint Data;
+        public nuint Size;
+    }
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetWindowCompositionAttribute(nint hwnd, ref WindowCompositionAttributeData data);
+    internal static unsafe bool ExcludeFromDesktopPeek(nint window, bool excluded)
+    {
+        int value = excluded ? 1 : 0;
+        var data = new WindowCompositionAttributeData { Attribute = 13, Data = (nint)(&value), Size = 4 }; // WCA_EXCLUDED_FROM_LIVEPREVIEW
+        return SetWindowCompositionAttribute(window, ref data);
+    }
     [DllImport("dwmapi.dll")] public static extern int DwmSetWindowAttribute(nint hwnd, uint attribute, ref int value, int size);
     [StructLayout(LayoutKind.Sequential)] private struct GlassMargins { public int Left, Right, Top, Bottom; }
     [StructLayout(LayoutKind.Sequential)] private struct BlurBehind { public uint Flags; [MarshalAs(UnmanagedType.Bool)] public bool Enabled; public nint Region; [MarshalAs(UnmanagedType.Bool)] public bool Transition; }
@@ -172,6 +188,33 @@ internal static class Native
         // The retained composition surface already contains the newly exposed
         // pixels. Avoid a synchronous GDI redraw on every clipping update.
         if (SetWindowRgn(window, region, false) == 0 && region != 0) DeleteObject(region);
+    }
+    [DllImport("gdi32.dll")] private static extern int CombineRgn(nint destination, nint first, nint second, int mode);
+    [DllImport("user32.dll")] private static extern int GetWindowRgn(nint window, nint region);
+    [DllImport("gdi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool PtInRegion(nint region, int x, int y);
+    internal static void SetDockRegions(nint window, IReadOnlyList<PixelRect> rectangles)
+    {
+        nint region = CreateRectRgn(0, 0, 0, 0);
+        try
+        {
+            foreach (var rect in rectangles)
+            {
+                if (rect.Width <= 0 || rect.Height <= 0) continue;
+                nint part = CreateRectRgn(rect.Left, rect.Top, rect.Right, rect.Bottom);
+                try { CombineRgn(region, region, part, 2); } // RGN_OR
+                finally { DeleteObject(part); }
+            }
+            if (SetWindowRgn(window, region, false) != 0) region = 0;
+        }
+        finally { if (region != 0) DeleteObject(region); }
+    }
+    internal static bool WindowRegionContains(nint window, int x, int y)
+    {
+        nint region = CreateRectRgn(0, 0, 0, 0);
+        try { return GetWindowRgn(window, region) == 0 || PtInRegion(region, x, y); }
+        finally { DeleteObject(region); }
     }
     [DllImport("gdi32.dll")] private static extern nint GetStockObject(int kind);
     [DllImport("user32.dll")] private static extern bool GetClientRect(nint hwnd, out RECT rect);

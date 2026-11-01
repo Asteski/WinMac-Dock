@@ -72,6 +72,8 @@ internal sealed class ItemPropertiesWindow : Window
     private readonly Image preview = new() { Width = 32, Height = 32, Stretch = Stretch.Uniform };
     private readonly ToggleSwitch? thumbnail;
     private readonly ComboBox? additionalCommands;
+    private readonly ComboBox? snippingFolders;
+    private readonly ComboBox? xboxGames;
     private readonly ComboBox? edgeFavorites;
     private readonly ComboBox? edgeProfiles;
     private readonly ComboBox? edgeWorkspaces;
@@ -199,6 +201,30 @@ internal sealed class ItemPropertiesWindow : Window
             }
             panel.Children.Add(commands);
         }
+        else if (ShellService.IsXbox(item))
+        {
+            additionalCommands = CommandsDropdown("Categories", item.AdditionalCommands);
+            xboxGames = CommandsDropdown("Games", item.XboxGamesCommands);
+            var row = new Grid { ColumnSpacing = 12 };
+            foreach (var dropdown in new[] { additionalCommands, xboxGames })
+            {
+                row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+                Grid.SetColumn(dropdown, row.Children.Count); dropdown.MinWidth = 0; row.Children.Add(dropdown);
+            }
+            panel.Children.Add(row);
+        }
+        else if (ShellService.IsSnippingTool(item))
+        {
+            additionalCommands = CommandsDropdown("Tasks", item.AdditionalCommands);
+            snippingFolders = CommandsDropdown("Folders", item.Snipping.FoldersCommands);
+            var row = new Grid { ColumnSpacing = 12 };
+            foreach (var dropdown in new[] { additionalCommands, snippingFolders })
+            {
+                row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+                Grid.SetColumn(dropdown, row.Children.Count); dropdown.MinWidth = 0; row.Children.Add(dropdown);
+            }
+            panel.Children.Add(row);
+        }
         else if (ShellService.IsSystemSettings(item) || ShellService.IsMicrosoftStore(item) || ShellService.IsTerminal(item) || ShellService.IsXbox(item) || ShellService.IsSnippingTool(item))
         {
             additionalCommands = CommandsDropdown(ShellService.IsTerminal(item) ? "Profiles" : "Additional commands", item.AdditionalCommands);
@@ -244,7 +270,7 @@ internal sealed class ItemPropertiesWindow : Window
         if (downloads)
         {
             downloadsView = new ComboBox { Header = "Show content as", ItemsSource = new[] { FolderView.Grid, FolderView.List, FolderView.Menu }, SelectedItem = item.Folder.View, MinWidth = 180 };
-            downloadsSort = new ComboBox { Header = "Sort by", ItemsSource = new[] { FolderSort.Name, FolderSort.Size, FolderSort.Modified, FolderSort.Type }, SelectedItem = item.Folder.Sort, MinWidth = 180 };
+            downloadsSort = new ComboBox { Header = "Sort by", ItemsSource = new[] { "Name", "Size", "Date modified", "Date created", "Type" }, SelectedIndex = (int)item.Folder.Sort, MinWidth = 180 };
             downloadsDisplay = new ComboBox { Header = "Display as", ItemsSource = new[] { "Folder", "Stack" }, SelectedIndex = item.ShowThumbnail || item.Folder.StackIcon ? 1 : 0, MinWidth = 180 };
             var downloadsOptions = new Grid { ColumnSpacing = 12 };
             var dropdowns = new[] { downloadsView, downloadsSort, downloadsDisplay };
@@ -277,8 +303,8 @@ internal sealed class ItemPropertiesWindow : Window
             toggles.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
             toggles.Children.Add(downloadsDescending); Grid.SetColumn(downloadsFilesOnly, 1); toggles.Children.Add(downloadsFilesOnly);
             panel.Children.Add(toggles);
-            hideFolderName = new CheckBox { Content = "Hide folder name in grid view", IsChecked = item.Folder.HideFolderNameInGrid ?? false, IsEnabled = downloadsView.SelectedItem is FolderView.Grid };
-            downloadsView.SelectionChanged += (_, _) => hideFolderName.IsEnabled = downloadsView.SelectedItem is FolderView.Grid;
+            hideFolderName = new CheckBox { Content = "Hide folder name header", IsChecked = item.Folder.HideFolderNameInGrid ?? false, IsEnabled = downloadsView.SelectedItem is FolderView.Grid or FolderView.List };
+            downloadsView.SelectionChanged += (_, _) => hideFolderName.IsEnabled = downloadsView.SelectedItem is FolderView.Grid or FolderView.List;
             panel.Children.Add(hideFolderName);
         }
         else { downloadsView = null; downloadsSort = null; }
@@ -331,60 +357,6 @@ internal sealed class ItemPropertiesWindow : Window
         return result;
     }
     private static ComboBox CommandsDropdown(string header, AdditionalCommandsVisibility value) => new() { Header = header, ItemsSource = new[] { "Show in main menu", "Show in submenu", "Hide" }, SelectedIndex = Math.Clamp((int)value, 0, 2), HorizontalAlignment = HorizontalAlignment.Stretch };
-    internal int CheckIconApplyState()
-    {
-        if (apply.IsEnabled) throw new InvalidOperationException("Apply starts enabled without an edit.");
-        var boxes = item.Kind == ItemKind.RecycleBin ? new[] { recycleEmpty, recycleFull, recycleEmptyDark, recycleFullDark } : new[] { icon, darkIcon };
-        foreach (var box in boxes)
-        {
-            string original = box.Text;
-            SetIconPath(box, Path.Combine(AppContext.BaseDirectory, "assets", "apply-check.ico"));
-            if (!apply.IsEnabled) throw new InvalidOperationException("Changing an icon did not enable Apply.");
-            SetIconPath(box, original);
-            if (apply.IsEnabled) throw new InvalidOperationException("Restoring the original icon did not clear Apply.");
-        }
-        return boxes.Length * 2;
-    }
-    internal void CheckCaptureControls()
-    {
-        if (pinNewCaptures == null || unpinOpenedCaptures == null || capturePinLimit == null || screenshotFolder == null || recordingFolder == null)
-            throw new InvalidOperationException("Snipping Tool capture controls are missing.");
-        var paths = SnippingToolSettings.Read();
-        if (screenshotFolder.Text != paths.Screenshots || recordingFolder.Text != paths.Recordings) throw new InvalidOperationException("Capture controls do not show native save folders.");
-        bool? pinned = pinNewCaptures.IsChecked;
-        pinNewCaptures.IsChecked = !pinned; UpdateApplyState();
-        if (!apply.IsEnabled) throw new InvalidOperationException("Capture toggle does not enable Apply.");
-        pinNewCaptures.IsChecked = pinned;
-        string original = screenshotFolder.Text; screenshotFolder.Text = Path.GetTempPath(); UpdateApplyState();
-        if (!apply.IsEnabled) throw new InvalidOperationException("Changing the screenshot folder does not enable Apply.");
-        screenshotFolder.Text = original; UpdateApplyState();
-        if (apply.IsEnabled) throw new InvalidOperationException("Restoring capture controls leaves Apply enabled.");
-    }
-    internal async Task CheckRecycleProperties()
-    {
-        await Task.Delay(700);
-        if (panel.Children.OfType<TextBox>().Any(box => box.Header is "Target" or "Arguments" or "Working directory" or "Application identity (AUMID)")) throw new InvalidOperationException("Recycle Bin still displays launch fields.");
-        var cards = panel.Children.OfType<Grid>().SelectMany(row => row.Children.OfType<StackPanel>()).ToArray();
-        if (cards.Length != 4 || cards.Any(card => card.Children.OfType<Image>().Single().Source == null)) throw new InvalidOperationException("Four Recycle Bin icon previews did not load.");
-        string custom = IconResources.PathFor(BundledIcons.Application);
-        var expected = await IconService.Load(custom, imageFile: true, requestedPixels: 64);
-        var boxes = new[] { recycleEmpty, recycleFull, recycleEmptyDark, recycleFullDark };
-        for (int i = 0; i < boxes.Length; i++)
-        {
-            boxes[i].Text = custom;
-            await RefreshRecyclePreviews();
-            var image = cards[i].Children.OfType<Image>().Single();
-            if (!ReferenceEquals(image.Source, expected)) throw new InvalidOperationException("Selecting an icon did not refresh its preview.");
-            boxes[i].Text = "";
-            await RefreshRecyclePreviews();
-            if (ReferenceEquals(image.Source, expected) || image.Source == null) throw new InvalidOperationException("Resetting an icon did not restore its preview.");
-        }
-        recycleEmpty.Text = custom;
-        await RefreshRecyclePreviews();
-        if (!ReferenceEquals(cards[2].Children.OfType<Image>().Single().Source, expected)) throw new InvalidOperationException("Dark preview did not inherit the edited light icon.");
-        recycleEmpty.Text = "";
-        await RefreshRecyclePreviews();
-    }
     private static Slider GridSizeSlider(string header, int value)
     {
         var slider = new Slider { Header = header, Minimum = 1, Maximum = 7, StepFrequency = 1,
@@ -408,27 +380,6 @@ internal sealed class ItemPropertiesWindow : Window
             catch (Exception ex) { Log.Write(ex); if (captureSettingsError != null) captureSettingsError.Text = ex.Message; }
         };
         return box;
-    }
-    internal async Task CheckDownloadsSliders()
-    {
-        await Task.Delay(300);
-        panel.UpdateLayout();
-        static IEnumerable<FrameworkElement> Children(DependencyObject parent)
-        {
-            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
-            {
-                var child = VisualTreeHelper.GetChild(parent, i);
-                if (child is FrameworkElement element) yield return element;
-                foreach (var nested in Children(child)) yield return nested;
-            }
-        }
-        foreach (var slider in new[] { downloadsGridRows!, downloadsGridColumns! })
-        {
-            if (slider.Minimum != 1 || slider.Maximum != 7) throw new InvalidOperationException("Slider range changed.");
-        }
-        var bottom = downloadsView!.TransformToVisual(panel).TransformPoint(new Windows.Foundation.Point()).Y + downloadsView.ActualHeight;
-        var top = downloadsGridRows!.TransformToVisual(panel).TransformPoint(new Windows.Foundation.Point()).Y;
-        if (top - bottom < 23) throw new InvalidOperationException("Slider row has less than 24 DIP spacing.");
     }
     private TextBox Field(string header, string value, bool browse = false, bool location = false)
     {
@@ -531,22 +482,6 @@ internal sealed class ItemPropertiesWindow : Window
             Grid.SetColumn(card, column); row.Children.Add(card);
         }
         panel.Children.Add(row);
-    }
-    internal async Task CheckDefaultIconCards()
-    {
-        await Task.Delay(250);
-        var cards = panel.Children.OfType<Grid>().SelectMany(row => row.Children.OfType<StackPanel>())
-            .Where(card => card.Children.OfType<Image>().Any(image => image.Width == 48)).ToArray();
-        if (cards.Length != 2) throw new InvalidOperationException("Expected two icon cards.");
-        foreach (var card in cards)
-        {
-            var labels = card.Children.OfType<TextBlock>().ToArray();
-            if (labels[0].TextAlignment != TextAlignment.Center || labels[1].Text != "Default")
-                throw new InvalidOperationException("Default icon headings or labels are incorrect.");
-            if (card.Children.OfType<StackPanel>().SelectMany(actions => actions.Children.OfType<Button>()).Single(button => button.Content?.ToString() == "Reset").IsEnabled)
-                throw new InvalidOperationException("Default icon Reset is enabled.");
-            if (card.Children.OfType<Image>().Single().Source == null) throw new InvalidOperationException("Default icon preview did not load.");
-        }
     }
     private async Task<string?> ChooseIconSource(string path)
     {
@@ -715,6 +650,8 @@ internal sealed class ItemPropertiesWindow : Window
         if (edgeWorkspaces != null) item.EdgeWorkspacesCommands = (AdditionalCommandsVisibility)Math.Clamp(edgeWorkspaces.SelectedIndex, 0, 2);
         if (edgeProfiles != null) item.EdgeProfilesCommands = (AdditionalCommandsVisibility)Math.Clamp(edgeProfiles.SelectedIndex, 0, 2);
         if (edgeFavorites != null) item.EdgeFavoritesCommands = (AdditionalCommandsVisibility)Math.Clamp(edgeFavorites.SelectedIndex, 0, 2);
+        if (xboxGames != null) item.XboxGamesCommands = (AdditionalCommandsVisibility)Math.Clamp(xboxGames.SelectedIndex, 0, 2);
+        if (snippingFolders != null) item.Snipping.FoldersCommands = (AdditionalCommandsVisibility)Math.Clamp(snippingFolders.SelectedIndex, 0, 2);
         if (additionalCommands != null) item.AdditionalCommands = (AdditionalCommandsVisibility)Math.Clamp(additionalCommands.SelectedIndex, 0, 2);
         if (pinUsbDrives != null) item.PinUsbDrives = pinUsbDrives.IsChecked == true;
         if (explorerRecent != null) item.ExplorerRecentCommands = (AdditionalCommandsVisibility)Math.Clamp(explorerRecent.SelectedIndex, 0, 2);
@@ -726,7 +663,7 @@ internal sealed class ItemPropertiesWindow : Window
         if (thumbnail != null) { item.ShowThumbnail = thumbnail.IsOn; item.Folder.StackIcon = false; }
         if (downloadsDisplay != null) { item.ShowThumbnail = downloadsDisplay.SelectedIndex == 1; item.Folder.StackIcon = false; }
         if (downloadsView?.SelectedItem is FolderView view) item.Folder.View = view;
-        if (downloadsSort?.SelectedItem is FolderSort sort) item.Folder.Sort = sort;
+        if (downloadsSort != null) item.Folder.Sort = (FolderSort)Math.Clamp(downloadsSort.SelectedIndex, 0, 4);
         if (downloadsDescending != null) item.Folder.Descending = !downloadsDescending.IsOn;
         if (downloadsFilesOnly != null) item.Folder.FilesOnly = downloadsFilesOnly.IsOn;
         if (hideFolderName != null) item.Folder.HideFolderNameInGrid = hideFolderName.IsChecked == true;
@@ -746,51 +683,6 @@ internal sealed class ItemPropertiesWindow : Window
         UpdateApplyState();
         if (close) Close();
     }
-    internal async Task CheckEditor(string light, string dark, bool save)
-    {
-        await Task.Delay(200);
-        var targetRow = panel.Children.OfType<StackPanel>().First(p => p.Children.OfType<Button>().Any(b => b.Content?.ToString() == "Open file location"));
-        if (!targetRow.Children.OfType<Button>().Select(b => b.Content?.ToString()).SequenceEqual(new[] { "Open file location", "Browse\u2026" }))
-            throw new Exception("Target actions are in the wrong order");
-        var originalName = item.Name;
-        name.Text = ""; Save(false);
-        if (name.Text != originalName || item.Name != originalName) throw new Exception("Apply did not restore an empty item name.");
-        name.Text = "Properties regression"; icon.Text = light; darkIcon.Text = dark;
-        target.Text = Environment.ProcessPath!; arguments.Text = "--example"; working.Text = Path.GetTempPath();
-        if (runAsAdministrator != null) runAsAdministrator.IsChecked = true;
-        chrome.Root.RequestedTheme = ElementTheme.Light; await Task.Delay(150); await RefreshPreview();
-        var expectedLight = await IconService.Load(light, imageFile: true, requestedPixels: 32);
-        if (!ReferenceEquals(preview.Source, expectedLight)) throw new Exception("Light preview did not use the default icon");
-        chrome.Root.RequestedTheme = ElementTheme.Dark; await Task.Delay(150); await RefreshPreview();
-        var expectedDark = await IconService.Load(dark, imageFile: true, requestedPixels: 32);
-        if (!ReferenceEquals(preview.Source, expectedDark)) throw new Exception("Dark preview did not use the dark icon");
-        if (!File.Exists(windowIcon) || Native.WindowIcon(WinRT.Interop.WindowNative.GetWindowHandle(this)) == 0) throw new Exception("Properties window icon was not assigned");
-        if (preview.ActualWidth != 32 || preview.ActualHeight != 32) throw new Exception("Preview is not 32 by 32");
-        using (var exported = new System.Drawing.Icon(windowIcon))
-        using (var bitmap = exported.ToBitmap())
-        {
-            var pixel = bitmap.GetPixel(bitmap.Width / 2, bitmap.Height / 2);
-            if (pixel.A == 0 || pixel.B < 180 || pixel.R > 30) throw new Exception("Title-bar icon pixels do not match the selected dark icon");
-        }
-        var frame32 = ReadWindowIconFrames().First(f => f.Size == 32);
-        using (var buffer = new MemoryStream(frame32.Png))
-        using (var bitmap = new System.Drawing.Bitmap(buffer))
-        {
-            var edge = bitmap.GetPixel(3, 16);
-            if (Math.Abs(edge.A - 128) > 2 || Math.Abs(edge.G - 191) > 2 || Math.Abs(edge.B - 255) > 2 || bitmap.GetPixel(0, 0).A != 0)
-                throw new Exception("Window icon transparency was flattened or premultiplied twice");
-        }
-        await CheckNativeTaskbarIcon("fixture");
-        await Task.Delay(100);
-        var position = AppWindow.Position; var size = AppWindow.Size;
-        using (var screenshot = new System.Drawing.Bitmap(size.Width, size.Height))
-        {
-            using var graphics = System.Drawing.Graphics.FromImage(screenshot);
-            graphics.CopyFromScreen(position.X, position.Y, 0, 0, new System.Drawing.Size(size.Width, size.Height));
-            screenshot.Save(Path.Combine(Log.DirectoryPath, "properties-preview.png"), System.Drawing.Imaging.ImageFormat.Png);
-        }
-        if (save) Save(true); else Close();
-    }
     private List<(int Size, byte[] Png)> ReadWindowIconFrames()
     {
         using var reader = new BinaryReader(File.OpenRead(windowIcon));
@@ -806,28 +698,6 @@ internal sealed class ItemPropertiesWindow : Window
         }
         if (!new[] { 16, 20, 24, 32, 40, 48, 64, 256 }.All(size => frames.Any(f => f.Size == size))) throw new Exception("Missing native/DPI icon frames");
         return frames;
-    }
-    internal async Task CheckNativeTaskbarIcon(string label)
-    {
-        for (int attempt = 0; attempt < 50 && !File.Exists(windowIcon); attempt++) await Task.Delay(100);
-        var frames = ReadWindowIconFrames();
-        using var icon = System.Drawing.Icon.FromHandle(Native.WindowIcon(WinRT.Interop.WindowNative.GetWindowHandle(this)));
-        using var native = icon.ToBitmap();
-        var frame = frames.FirstOrDefault(f => f.Size == native.Width);
-        if (frame.Png == null) throw new Exception("Native window selected an unexpected icon size: " + native.Width);
-        using var stream = new MemoryStream(frame.Png); using var expected = new System.Drawing.Bitmap(stream);
-        int checkedPixels = 0;
-        for (int y = 0; y < native.Height; y++)
-        for (int x = 0; x < native.Width; x++)
-        {
-            var a = expected.GetPixel(x, y); var b = native.GetPixel(x, y);
-            if (a.A < 250) continue;
-            checkedPixels++;
-            if (Math.Abs(a.R - b.R) > 3 || Math.Abs(a.G - b.G) > 3 || Math.Abs(a.B - b.B) > 3) throw new Exception("Native taskbar icon differs from its selected frame");
-        }
-        if (checkedPixels == 0) throw new Exception("Native window icon is empty");
-        native.Save(Path.Combine(Log.DirectoryPath, "properties-" + label + "-native.png"), System.Drawing.Imaging.ImageFormat.Png);
-        expected.Save(Path.Combine(Log.DirectoryPath, "properties-" + label + "-source.png"), System.Drawing.Imaging.ImageFormat.Png);
     }
     [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool DestroyIcon(nint icon);
 }

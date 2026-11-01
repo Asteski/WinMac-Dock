@@ -8,6 +8,50 @@ internal sealed partial class DockWindow
     private readonly HashSet<Microsoft.UI.Xaml.Controls.Border> queuedDownloadFeedback = [];
     private bool downloadPinsObserved;
 
+    private static void PinArtworkFallback(DockItem item, Microsoft.UI.Xaml.Controls.FontIcon fallback)
+    {
+        fallback.Glyph = item.CapturePin == CapturePinKind.Recording ? "\uE714" : item.CapturePin == CapturePinKind.Screenshot ? "\uEB9F" : "\uE8A5";
+        fallback.Visibility = Microsoft.UI.Xaml.Visibility.Visible;
+    }
+    private readonly HashSet<string> pendingPinArtwork = [];
+    private readonly HashSet<Microsoft.UI.Xaml.Controls.Image> loadingPinArtwork = [];
+    private async Task LoadCaptureFileIcon(DockItem item, Microsoft.UI.Xaml.Controls.Image image,
+        Microsoft.UI.Xaml.Controls.FontIcon fallback, Microsoft.UI.Xaml.Controls.Grid host)
+    {
+        var revision = themeRevision;
+        var source = await IconService.LoadFileTypeIcon(item.Target, IconPixels);
+        if (closing || revision != themeRevision || image.Source != null || source == null
+            || !buttons.Any(b => b.Icon == host && b.Entry.Item.Id == item.Id)) return;
+        image.Source = source;
+        fallback.Visibility = Microsoft.UI.Xaml.Visibility.Collapsed;
+        QueueDownloadFeedback(item, image, host);
+    }
+    private Task RefreshPinArtwork()
+    {
+        if (closing || !StartupComplete || pendingPinArtwork.Count == 0) return Task.CompletedTask;
+        pendingPinArtwork.RemoveWhere(id => !Settings.Items.Any(item => item.Id == id));
+        foreach (var live in buttons.Where(b => pendingPinArtwork.Contains(b.Entry.Item.Id)).ToArray())
+        {
+            if (live.Icon is not Microsoft.UI.Xaml.Controls.Grid host
+                || host.Children.OfType<Microsoft.UI.Xaml.Controls.Image>().FirstOrDefault() is not { } image
+                || host.Children.OfType<Microsoft.UI.Xaml.Controls.FontIcon>().FirstOrDefault() is not { } fallback
+                || !loadingPinArtwork.Add(image)) continue;
+            _ = RefreshPinArtworkItem(live.Entry.Item, image, fallback, host, live.Entry.IsPinned);
+        }
+        return Task.CompletedTask;
+    }
+    private async Task RefreshPinArtworkItem(DockItem item, Microsoft.UI.Xaml.Controls.Image image,
+        Microsoft.UI.Xaml.Controls.FontIcon fallback, Microsoft.UI.Xaml.Controls.Grid host, bool pinned)
+    {
+        try
+        {
+            IconService.Invalidate(IconService.PathFor(item));
+            await LoadIcon(item, image, fallback, host, pinned);
+        }
+        catch (Exception ex) { Log.Write(ex); }
+        finally { loadingPinArtwork.Remove(image); }
+    }
+
     private void QueueDownloadFeedback(DockItem item, Microsoft.UI.Xaml.Controls.Image image, Microsoft.UI.Xaml.Controls.Grid icon)
     {
         if (closing || image.Source == null) return;

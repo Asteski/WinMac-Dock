@@ -53,8 +53,8 @@ internal sealed partial class DockWindow
     // installed app's interactive launch commands for this unpackaged dock.
     private static readonly (string Label, string Target, string? Glyph)[] snippingToolCommands =
     [
-        ("Open Screenshots folder", "open-screenshots-folder", null),
-        ("Open Screen recordings folder", "open-recordings-folder", null),
+        ("Open Screenshots folder", "open-screenshots-folder", "\uE838"),
+        ("Open Screen recordings folder", "open-recordings-folder", "\uE838"),
         ("New screenshot", "new-snip", "\uE722"),
         ("Screenshot in 3 seconds", "new-snip-short", "\uE916"),
         ("Screenshot in 5 seconds", "new-snip-medium", "\uE916"),
@@ -63,11 +63,11 @@ internal sealed partial class DockWindow
         ("Extract text", "ms-screenclip:?type=textExtractor", "\uE8D2")
     ];
 
-    private void AddSnippingToolCommands(MenuFlyout menu)
+    private void AddSnippingToolCommands(MenuFlyout menu, bool folders = false)
     {
         foreach (var command in snippingToolCommands)
         {
-            if (command.Target == "new-snip") menu.Items.Add(new MenuFlyoutSeparator());
+            if ((command.Target is "open-screenshots-folder" or "open-recordings-folder") != folders) continue;
             Menu(menu, command.Label, () => TryAction(() =>
             {
                 if (command.Target is "open-screenshots-folder" or "open-recordings-folder")

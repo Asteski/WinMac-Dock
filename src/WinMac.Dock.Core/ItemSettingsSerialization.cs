@@ -17,6 +17,8 @@ internal static class ItemSettingsSerialization
         {
             nameof(DockItem.EdgeFavoritesCommands) or nameof(DockItem.EdgeWorkspacesCommands) or nameof(DockItem.EdgeProfilesCommands) => edge,
             nameof(DockItem.ExplorerRecentCommands) or nameof(DockItem.ExplorerPinnedCommands) or nameof(DockItem.PinUsbDrives) => explorer,
+            nameof(DockItem.XboxGamesCommands) => application && (Prefix(item.AppUserModelId, "Microsoft.GamingApp_")
+                || Prefix(item.Target, @"shell:AppsFolder\Microsoft.GamingApp_") || Executable(item, "XboxPcApp.exe") || Executable(item, "XboxPcAppFT.exe")),
             nameof(DockItem.AdditionalCommands) => application && HasAdditionalCommands(item),
             nameof(DockItem.Folder) => folder,
             nameof(DockItem.ShowThumbnail) => file || folder,
