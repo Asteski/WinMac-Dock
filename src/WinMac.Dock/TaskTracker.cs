@@ -56,6 +56,18 @@ internal sealed class TaskTracker : IDisposable
         }, 0);
         foreach (var pid in cache.Keys.Where(x => !livePids.Contains(x)).ToArray()) cache.Remove(pid);
         foreach (var handle in activationOrder.Keys.Where(h => !Native.IsWindow(h)).ToArray()) activationOrder.Remove(handle);
+        // Settings can expose both a top-level frame and a separate app HWND.
+        // Count one Settings task, keeping the foreground HWND when possible.
+        var settings = result.Where(w => ShellService.IsSystemSettingsIdentity(w.AppUserModelId, w.ExecutablePath)).ToArray();
+        if (settings.Length > 1)
+        {
+            var foreground = Native.GetForegroundWindow();
+            var primary = settings.OrderByDescending(w => w.Handle == foreground)
+                .ThenByDescending(w => Native.Class(w.Handle) == "ApplicationFrameWindow" && !string.IsNullOrEmpty(w.ExecutablePath))
+                .ThenByDescending(w => !string.IsNullOrEmpty(w.ExecutablePath))
+                .ThenByDescending(w => activationOrder.GetValueOrDefault(w.Handle)).First();
+            result.RemoveAll(w => w.Handle != primary.Handle && ShellService.IsSystemSettingsIdentity(w.AppUserModelId, w.ExecutablePath));
+        }
         return result;
     }
     public TaskWindow? Describe(nint hwnd, HashSet<uint>? livePids = null, bool? allDesktops = null)
@@ -78,10 +90,28 @@ internal sealed class TaskTracker : IDisposable
             if (!includeAll || currentDesktop || (cloaked & 1) != 0) return null;
         }
         var title = Native.Title(hwnd); if (string.IsNullOrWhiteSpace(title)) return null;
+        var identity = ReadIdentity(pid, livePids);
+        var appId = ShellService.WindowAppId(hwnd);
+        if (cls == "ApplicationFrameWindow" || Path.GetFileName(identity.Path).Equals("ApplicationFrameHost.exe", StringComparison.OrdinalIgnoreCase))
+        {
+            // Keep the outer HWND for window actions, but identify the hosted app.
+            identity = ("", "");
+            for (nint child = 0; (child = Native.FindWindowExW(hwnd, child, "Windows.UI.Core.CoreWindow", null)) != 0;)
+            {
+                Native.GetWindowThreadProcessId(child, out uint appPid);
+                if (appPid == 0 || appPid == pid) continue;
+                identity = ReadIdentity(appPid, livePids);
+                break;
+            }
+            if (string.IsNullOrEmpty(appId) && string.IsNullOrEmpty(identity.Id) && string.IsNullOrEmpty(identity.Path)) return null;
+        }
+        return new(hwnd, title, identity.Path, string.IsNullOrEmpty(appId) ? identity.Id : appId, Native.Bounds(hwnd), Native.IsIconic(hwnd), Native.IsZoomed(hwnd));
+    }
+    private (string Path, string Id) ReadIdentity(uint pid, HashSet<uint>? livePids)
+    {
         livePids?.Add(pid);
         if (!cache.TryGetValue(pid, out var identity)) cache[pid] = identity = (Native.ProcessPath(pid), Native.ProcessAppId(pid));
-        var appId = ShellService.WindowAppId(hwnd);
-        return new(hwnd, title, identity.Path, string.IsNullOrEmpty(appId) ? identity.Id : appId, Native.Bounds(hwnd), Native.IsIconic(hwnd), Native.IsZoomed(hwnd));
+        return identity;
     }
     public void Dispose() { foreach (var hook in hooks) if (hook != 0) Native.UnhookWinEvent(hook); }
 }

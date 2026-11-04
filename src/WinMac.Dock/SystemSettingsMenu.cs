@@ -3,11 +3,14 @@ using Microsoft.UI.Xaml.Controls;
 namespace WinMac.Dock;
 internal static partial class ShellService
 {
+    internal static bool IsSystemSettingsIdentity(string appId, string executablePath) =>
+        appId.StartsWith("windows.immersivecontrolpanel_", StringComparison.OrdinalIgnoreCase)
+        || appId.Equals("windows.immersivecontrolpanel", StringComparison.OrdinalIgnoreCase)
+        || Path.GetFileName(executablePath).Equals("SystemSettings.exe", StringComparison.OrdinalIgnoreCase);
+
     internal static bool IsSystemSettings(DockItem item) =>
-        item.AppUserModelId.StartsWith("windows.immersivecontrolpanel_", StringComparison.OrdinalIgnoreCase)
-        || item.AppUserModelId.Equals("windows.immersivecontrolpanel", StringComparison.OrdinalIgnoreCase)
+        IsSystemSettingsIdentity(item.AppUserModelId, item.ExecutablePath)
         || item.Target.StartsWith("ms-settings:", StringComparison.OrdinalIgnoreCase)
-        || Path.GetFileName(item.ExecutablePath).Equals("SystemSettings.exe", StringComparison.OrdinalIgnoreCase)
         || Path.GetFileName(item.Target).Equals("SystemSettings.exe", StringComparison.OrdinalIgnoreCase);
 }
 

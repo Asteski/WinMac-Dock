@@ -15,8 +15,8 @@ internal sealed partial class DockWindow
     private bool materialVisible;
     private uint orderedSurfaceBand;
     private readonly Canvas hoverArtwork = new() { IsHitTestVisible = false };
-    private bool HoverEnvelope => Motion && !dockOverflow;
-    private double HoverEnvelopeOverflow => HoverOverflow + BounceEnvelopeHeight;
+    private bool HoverEnvelope => !dockOverflow;
+    private double HoverEnvelopeOverflow => PotentialHoverOverflow + BounceEnvelopeHeight;
     private Thickness DockOutlineThickness => !Settings.ShowDockBorder ? new Thickness(0) : !SpanDockLengthActive() ? new Thickness(1)
         : PositionEdge switch
         {

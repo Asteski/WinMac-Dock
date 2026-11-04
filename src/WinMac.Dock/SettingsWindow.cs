@@ -96,6 +96,11 @@ internal sealed partial class SettingsWindow : Window
         dock.ApplySettings();
         UpdateApplyState();
     }
+    private void PreviewMotionSettings()
+    {
+        dock.ApplyMotionSettings();
+        UpdateApplyState();
+    }
     private bool closingWithResult;
     private ComboBox? dockPosition;
     private ComboBox? dockAlignment;
@@ -316,13 +321,13 @@ internal sealed partial class SettingsWindow : Window
         AddNumber("Launch bounce speed (ms)", dock.Settings.LaunchBounceMs, 100, 2000, value => { dock.Settings.LaunchBounceMs = value; PreviewSettings(); });
         AddNumber("Automatic hide delay (ms)", dock.Settings.HideDelayMs, 0, 5000, value => { dock.Settings.HideDelayMs = value; PreviewSettings(); });
         AddNumber("Edge reveal delay (ms)", dock.Settings.RevealDelayMs, 0, 2000, value => { dock.Settings.RevealDelayMs = value; PreviewSettings(); });
-        var magnification = AddToggle("Enable magnification", LayoutMagnificationEnabled, value => { LayoutMagnificationEnabled = value; PreviewSettings(); });
+        var magnification = AddToggle("Enable magnification", LayoutMagnificationEnabled, value => { LayoutMagnificationEnabled = value; PreviewMotionSettings(); });
         AddDisplayScopeNote();
         magnification.IsEnabled = !dock.Settings.ReduceMotion;
         var magnificationRow = (FrameworkElement)panel.Children[^1];
         magnificationRow.Opacity = dock.Settings.ReduceMotion ? .5 : 1;
-        AddToggle("Follow Windows animation settings", dock.Settings.FollowWindowsAnimations, value => { dock.Settings.FollowWindowsAnimations = value; PreviewSettings(); });
-        AddToggle("Disable animations", dock.Settings.ReduceMotion, value => { dock.Settings.ReduceMotion = value; magnification.IsEnabled = !value; magnificationRow.Opacity = value ? .5 : 1; PreviewSettings(); });
+        AddToggle("Follow Windows animation settings", dock.Settings.FollowWindowsAnimations, value => { dock.Settings.FollowWindowsAnimations = value; PreviewMotionSettings(); });
+        AddToggle("Disable animations", dock.Settings.ReduceMotion, value => { dock.Settings.ReduceMotion = value; magnification.IsEnabled = !value; magnificationRow.Opacity = value ? .5 : 1; PreviewMotionSettings(); });
         AddToggle("Show Dock settings in item context menus", dock.Settings.ShowDockSettingsInItemMenus, value => { dock.Settings.ShowDockSettingsInItemMenus = value; PreviewSettings(); });
         AddToggle("Use a keyboard shortcut to show or hide the dock", dock.Settings.HotkeyEnabled, value => { dock.Settings.HotkeyEnabled = value; PreviewSettings(); });
         AddShortcutRow();

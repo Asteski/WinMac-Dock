@@ -269,7 +269,7 @@ internal sealed class ItemPropertiesWindow : Window
         }
         if (downloads)
         {
-            downloadsView = new ComboBox { Header = "Show content as", ItemsSource = new[] { FolderView.Grid, FolderView.List, FolderView.Menu }, SelectedItem = item.Folder.View, MinWidth = 180 };
+            downloadsView = new ComboBox { Header = "Show content as", ItemsSource = new[] { FolderView.Grid, FolderView.List, FolderView.Menu }, SelectedIndex = item.Folder.View switch { FolderView.Grid => 0, FolderView.List => 1, FolderView.Menu => 2, _ => -1 }, MinWidth = 180 };
             downloadsSort = new ComboBox { Header = "Sort by", ItemsSource = new[] { "Name", "Size", "Date modified", "Date created", "Type" }, SelectedIndex = (int)item.Folder.Sort, MinWidth = 180 };
             downloadsDisplay = new ComboBox { Header = "Display as", ItemsSource = new[] { "Folder", "Stack" }, SelectedIndex = item.ShowThumbnail || item.Folder.StackIcon ? 1 : 0, MinWidth = 180 };
             var downloadsOptions = new Grid { ColumnSpacing = 12 };
@@ -303,8 +303,8 @@ internal sealed class ItemPropertiesWindow : Window
             toggles.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
             toggles.Children.Add(downloadsDescending); Grid.SetColumn(downloadsFilesOnly, 1); toggles.Children.Add(downloadsFilesOnly);
             panel.Children.Add(toggles);
-            hideFolderName = new CheckBox { Content = "Hide folder name header", IsChecked = item.Folder.HideFolderNameInGrid ?? false, IsEnabled = downloadsView.SelectedItem is FolderView.Grid or FolderView.List };
-            downloadsView.SelectionChanged += (_, _) => hideFolderName.IsEnabled = downloadsView.SelectedItem is FolderView.Grid or FolderView.List;
+            hideFolderName = new CheckBox { Content = "Hide folder name header", IsChecked = item.Folder.HideFolderNameInGrid ?? false, IsEnabled = downloadsView.SelectedIndex is 0 or 1 };
+            downloadsView.SelectionChanged += (_, _) => hideFolderName.IsEnabled = downloadsView.SelectedIndex is 0 or 1;
             panel.Children.Add(hideFolderName);
         }
         else { downloadsView = null; downloadsSort = null; }

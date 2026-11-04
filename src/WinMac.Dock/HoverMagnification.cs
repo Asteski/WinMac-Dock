@@ -317,7 +317,7 @@ internal sealed partial class DockWindow
             // Derive both entry and exit from the same screen coordinates.
             // Re-entry during contraction must reverse the existing animation
             // even when WinUI misses PointerMoved at the changing native edge.
-            hoverEngaged = HoverContains(cursor);
+            hoverEngaged = DisplayMagnificationEnabled && HoverContains(cursor);
             pointer = (Vertical ? cursor.Y - resting.Top : cursor.X - resting.Left) / scale
                 - hoverRowOffset;
         }
@@ -368,7 +368,7 @@ internal sealed partial class DockWindow
         hoverPainting = true;
         try
         {
-            hoverWave.ConstrainGrowth(hoverAvailableExpansion, HoverOverflow);
+            hoverWave.ConstrainGrowth(hoverAvailableExpansion, PotentialHoverOverflow);
             double expansion = Math.Min(hoverWave.TotalGrowth, hoverAvailableExpansion);
             var previousBounds = visibleBounds;
             int before = laidOutSpanning ? 0 : DockGeometry.Pixels(expansion * HoverAnchor, scale), after = laidOutSpanning ? 0 : DockGeometry.Pixels(expansion * (1 - HoverAnchor), scale);

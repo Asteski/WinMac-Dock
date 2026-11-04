@@ -124,7 +124,8 @@ internal sealed partial class DockWindow : Window
     private double DisplaySpacing => displaySpacing ?? Settings.IconSpacing;
     private double SeparatorWidth => 1 / scale;
     private double FitRatio => DisplayIconSize / (double)(displayRequestedSize > 0 ? displayRequestedSize : Settings.IconSize);
-    private double HoverOverflow => DisplayMagnificationEnabled ? Math.Max(0, DockGeometry.HoverSizePercent(DisplayIconSize, Settings.HoverMagnificationPercent, 1) - DisplayIconSize) : 0;
+    private double PotentialHoverOverflow => Math.Max(0, DockGeometry.HoverSizePercent(DisplayIconSize, Settings.HoverMagnificationPercent, 1) - DisplayIconSize);
+    private double HoverOverflow => DisplayMagnificationEnabled ? PotentialHoverOverflow : 0;
     private double MarginDip(int physicalPixels) => physicalPixels / Math.Max(1, scale);
     private double CurrentDockThickness => (dockOverflow ? 16 : 0) + (Vertical
         ? ButtonSize + MarginDip(Settings.DockMarginLeft + Settings.DockMarginRight)
@@ -438,6 +439,27 @@ internal sealed partial class DockWindow : Window
         settingsWindow?.SyncDockPosition();
         EvaluateVisibility();
     }
+    internal void ApplyMotionSettings()
+    {
+        if (closing) return;
+        Save();
+        if (!Motion)
+        {
+            FinishRowTransition();
+            StopIndicatorAnimations();
+            ResetMagnification();
+            if (visibilitySliding) FinishVisibilityAnimation();
+        }
+        else if (!DisplayMagnificationEnabled)
+        {
+            ResetMagnification(immediate: false);
+        }
+
+        // Refresh highlights without tearing down the live icon controls.
+        lastStyledThemeRevision = -1;
+        Reconcile();
+    }
+
     public void ApplySettings() => ApplySettings(persist: true);
     internal void ApplySettings(bool persist)
     {
@@ -2054,7 +2076,7 @@ internal sealed partial class DockWindow : Window
             {
                 DisplayMagnificationEnabled = !DisplayMagnificationEnabled;
                 Settings.ShowIconHighlights = !DisplayMagnificationEnabled;
-                ApplySettings();
+                ApplyMotionSettings();
             });
             ((MenuFlyoutItem)menu.Items[^1]).IsEnabled = !Settings.ReduceMotion;
             Menu(menu, Settings.LockIconPositions ? "Unlock items" : "Lock items", () =>
@@ -2149,7 +2171,11 @@ internal sealed partial class DockWindow : Window
         if (edgeBrowser) AddAdditionalCommands(menu, entry.Item);
         if (entry.IsPinned || !hasRunningWindow || !showWindowList)
         {
-            if (!hasRunningWindow && entry.Item.Kind == ItemKind.Folder) Menu(menu, IsDownloads(entry.Item) ? "Open Downloads folder" : "Open", () => TryAction(() => { ShellService.Open(entry.Item.Target); BounceItem(entry.Item); }), IsDownloads(entry.Item) ? "\uE838" : "\uEC50");
+            if (!hasRunningWindow && entry.Item.Kind == ItemKind.Folder)
+            {
+                var command = FolderOpenCommand(entry.Item, dockMenu: true);
+                Menu(menu, command.Label, () => TryAction(() => { ShellService.Open(entry.Item.Target); BounceItem(entry.Item); }), command.Glyph);
+            }
             else if (terminal && hasRunningWindow)
             {
                 Menu(menu, "Open in new window", () => OpenTerminal(entry.Item, true), "\uE737");
@@ -2389,6 +2415,50 @@ internal sealed partial class DockWindow : Window
         string.Equals(Path.GetFileName(item.ExecutablePath), "explorer.exe", StringComparison.OrdinalIgnoreCase)
         || string.Equals(Path.GetFileName(item.Target), "explorer.exe", StringComparison.OrdinalIgnoreCase)
         || string.Equals(item.AppUserModelId, "Microsoft.Windows.Explorer", StringComparison.OrdinalIgnoreCase);
+    private static bool IsDrivePin(DockItem item) =>
+        item.Kind == ItemKind.Folder && Path.IsPathFullyQualified(item.Target)
+        && Path.GetPathRoot(item.Target) is { Length: 3 } root && root[1] == ':'
+        && string.Equals(item.Target.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), root[..2], StringComparison.OrdinalIgnoreCase);
+
+    internal static (string Label, string Glyph) FolderOpenCommand(DockItem item, bool dockMenu = false)
+    {
+        if (IsDrivePin(item))
+        {
+            string root = item.Target[..2] + "\\";
+            var kind = item.AttachedDriveKind;
+            if (!item.IsAutoUsbPin && !TryReadAttachedVolume(root, out kind))
+            {
+                var driveType = new DriveInfo(root).DriveType;
+                if (driveType == DriveType.Network) return ("Open disk", "\uE839");
+                if (driveType == DriveType.CDRom) kind = AttachedDriveKind.Optical;
+            }
+
+            return ("Open disk", kind switch
+            {
+                AttachedDriveKind.UsbFlashDrive => "\uE88E",
+                AttachedDriveKind.MemoryCard => "\uE7F1",
+                AttachedDriveKind.Optical => "\uE958",
+                _ => "\uEDA2"
+            });
+        }
+
+        if (IsDownloads(item)) return ("Open Downloads folder", "\uE838");
+        return dockMenu ? ("Open", "\uEC50") : ("Open folder", "\uED25");
+    }
+
+    internal static string FolderHeading(DockItem item)
+    {
+        if (!IsDrivePin(item)) return item.Name;
+        if (item.IsAutoUsbPin && !string.IsNullOrWhiteSpace(item.Name)) return item.Name;
+
+        string driveLetter = item.Target[..2].ToUpperInvariant();
+        string label = "";
+        try { label = new DriveInfo(driveLetter).VolumeLabel; }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+        return $"{(string.IsNullOrWhiteSpace(label) ? "Local Disk" : label)} ({driveLetter})";
+    }
+
     internal static bool IsDownloads(DockItem item)
     {
         try { return string.Equals(Path.GetFullPath(item.Target), Path.GetFullPath(Native.Downloads()), StringComparison.OrdinalIgnoreCase); }
@@ -2527,7 +2597,8 @@ internal sealed partial class DockWindow : Window
     internal MenuFlyout CreateFolderMenu(DockItem item)
     {
         var menu = new MenuFlyout(); TrackFlyout(menu);
-        var openFolder = new MenuFlyoutItem { Text = IsDownloads(item) ? "Open Downloads folder" : "Open folder", Icon = Glyph(IsDownloads(item) ? "\uE838" : "\uED25") };
+        var command = FolderOpenCommand(item);
+        var openFolder = new MenuFlyoutItem { Text = command.Label, Icon = Glyph(command.Glyph) };
         openFolder.Click += (_, _) => TryAction(() => ShellService.Open(item.Target));
         menu.Items.Add(openFolder);
         menu.Items.Add(new MenuFlyoutSeparator());
