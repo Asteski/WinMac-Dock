@@ -13,8 +13,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Asteski/WinMac-Dock/releases/download/v0.8.1/WinMac-Dock-0.8.1-beta-x64.zip"><img alt="Download x64" src="https://img.shields.io/badge/Download-x64-0078D6?style=for-the-badge"></a>
-  <a href="https://github.com/Asteski/WinMac-Dock/releases/download/v0.8.1/WinMac-Dock-0.8.1-beta-arm64.zip"><img alt="Download ARM64" src="https://img.shields.io/badge/Download-ARM64-00A86B?style=for-the-badge"></a>
+  <a href="https://github.com/Asteski/WinMac-Dock/releases/download/v0.9.0/WinMac-Dock-0.9.0-beta-x64.zip"><img alt="Download x64" src="https://img.shields.io/badge/Download-x64-0078D6?style=for-the-badge"></a>
+  <a href="https://github.com/Asteski/WinMac-Dock/releases/download/v0.9.0/WinMac-Dock-0.9.0-beta-arm64.zip"><img alt="Download ARM64" src="https://img.shields.io/badge/Download-ARM64-00A86B?style=for-the-badge"></a>
 </p>
 <p align="center">
   <img alt="Latest Release" src="https://img.shields.io/github/v/release/Asteski/WinMac-Dock">
@@ -53,6 +53,8 @@
 - **Per-item customization:** Change names, icons, launch arguments, working directories, and supported administrator-launch options. Customized item and module properties are remembered when unpinned and restored when pinned again.
 
 - **Custom icons:** Use _ICO, PNG, JPG/JPEG, BMP, GIF, WebP_ or _SVG_ images, or select icons embedded in _DLL_ and _EXE_ files. Assign separate icons for light and dark mode.
+
+- **Exclusions:** Exclude any running app from appearing in the dock by window title, process name, or window class.
 
 - **Task View integration:** Keep the dock visible during Task View using the optional [Windhawk bridge mod](https://github.com/Asteski/WinMac-Dock/blob/a1e8460b41cd09a1d9ab7bce7c2282145a4a7200/mods/winmac-dock-task-view.wh.cpp).
 
