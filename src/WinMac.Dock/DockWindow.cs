@@ -137,7 +137,7 @@ internal sealed partial class DockWindow : Window
     internal readonly string? MonitorOverride;
     private string SelectedMonitor => MonitorOverride ?? Settings.Monitor;
     internal string DisplayIdentity => monitor?.Identity ?? ResolveDisplay().Identity;
-    private MonitorData ResolveDisplay()
+    internal MonitorData ResolveDisplay()
     {
         var displays = Native.Monitors();
         return displays.FirstOrDefault(m => m.Identity == SelectedMonitor || m.Device == SelectedMonitor)
@@ -574,6 +574,13 @@ internal sealed partial class DockWindow : Window
         while (index > 0 && Settings.Items[index - 1].Kind == ItemKind.Separator) index--;
         return index;
     }
+    private List<TaskWindow> ReadDockWindows(bool? allDesktops = null)
+    {
+        var tasks = tracker.Read(allDesktops);
+        tasks.RemoveAll(Settings.Exclusions.Matches);
+        return tasks;
+    }
+
     private void Reconcile()
     {
         if (initialized && Native.IsIconic(Handle) && HasExternalFullscreenForeground()) return;
@@ -590,8 +597,8 @@ internal sealed partial class DockWindow : Window
         reconciling = true;
         try
         {
-                windows = startupShellReady ? tracker.Read() : [];
-            if (startupShellReady && MonitorOverride == null && (MinimizedOnly || minimizedTabs.Removed.Count > 0)) minimizedTabs.Sync(Settings, tracker.Read(true));
+                windows = startupShellReady ? ReadDockWindows() : [];
+            if (startupShellReady && MonitorOverride == null && (MinimizedOnly || minimizedTabs.Removed.Count > 0)) minimizedTabs.Sync(Settings, ReadDockWindows(true));
             // Keep task order stable while foreground/Z-order changes.
             var previous = buttons.SelectMany(x => x.Entry.Windows).Select(w => w.Handle).ToList();
             windows = windows.OrderBy(w => { var i = previous.IndexOf(w.Handle); return i < 0 ? int.MaxValue : i; }).ToList();
@@ -1039,7 +1046,7 @@ internal sealed partial class DockWindow : Window
         }
         if (mouseButton == DockMouseButton.Left && Native.GetAsyncKeyState(0x11) < 0)
         {
-            var windows = DockClickPolicy.Similar(entry, tracker.Read());
+            var windows = DockClickPolicy.Similar(entry, ReadDockWindows());
             if (windows.Count > 0)
             {
                 windowClickSequences.Remove(DockClickPolicy.Identity(entry.Item) ?? entry.Item.Id);
@@ -1099,7 +1106,7 @@ internal sealed partial class DockWindow : Window
     }
     private void ExecuteClickAction(DockEntry entry, DockClickAction action, FrameworkElement anchor, FrameworkElement icon, nint foreground)
     {
-        var current = tracker.Read();
+        var current = ReadDockWindows();
         var primary = DockClickPolicy.Primary(entry, current, foreground);
         void Activate(TaskWindow task, bool minimize)
         {
@@ -2112,14 +2119,14 @@ internal sealed partial class DockWindow : Window
         bool singleton = ShellService.OnlyAlwaysOnTopOptions(entry.Item);
         if (entry.IsPinned || terminal || singleton)
         {
-            var matching = tracker.Read().Where(w => TaskReconciler.Matches(entry.Item, w)).ToArray();
+            var matching = ReadDockWindows().Where(w => TaskReconciler.Matches(entry.Item, w)).ToArray();
             if (entry.IsPinned || matching.Length > 0) entry = entry with { Window = matching.FirstOrDefault(), Group = matching };
         }
         if (IsFileExplorer(entry.Item))
         {
             // Explorer also owns the desktop. Only folder windows count as
             // running instances for this menu, including minimized windows.
-            var windows = tracker.Read().Where(w => IsFileExplorer(new DockItem { ExecutablePath = w.ExecutablePath })
+            var windows = ReadDockWindows().Where(w => IsFileExplorer(new DockItem { ExecutablePath = w.ExecutablePath })
                 && Native.Class(w.Handle) is "CabinetWClass" or "ExploreWClass").ToArray();
             entry = entry with { Window = windows.FirstOrDefault(), Group = windows };
         }
@@ -2220,16 +2227,23 @@ internal sealed partial class DockWindow : Window
         }
         if (entry.Item.Kind == ItemKind.RecycleBin)
         {
-            var empty = new MenuFlyoutItem { Text = "Empty Recycle Bin", Icon = Glyph("\uE74D"), IsEnabled = ShellService.RecycleCount() > 0 };
-            empty.Click += (_, _) => TryAction(() =>
+            var empty = new MenuFlyoutItem { Text = "Empty Recycle Bin", Icon = Glyph("\uE74D"), IsEnabled = !ShellService.IsEmptyingRecycleBin && ShellService.RecycleCount() > 0 };
+            empty.Click += async (_, _) =>
             {
-                var before = ShellService.RecycleCount();
-                // Suppress the shell sound so the selected sound plays only once.
-                var result = Native.SHEmptyRecycleBin(Handle, null, (entry.Item.ConfirmRecycleBinEmpty ? 0u : 1u) | 4u);
-                if (result == 0 && before > ShellService.RecycleCount() && entry.Item.PlayRecycleBinSounds)
-                    ShellService.PlayRecycleSound(empty: true, entry.Item.RecycleBinSoundVolumePercent);
-                UpdateRecycle();
-            });
+                try
+                {
+                    bool emptied = await ShellService.EmptyRecycleBinAsync(entry.Item.ConfirmRecycleBinEmpty);
+                    if (closing) return;
+                    if (emptied && entry.Item.PlayRecycleBinSounds)
+                        ShellService.PlayRecycleSound(empty: true, entry.Item.RecycleBinSoundVolumePercent);
+                    UpdateRecycle();
+                }
+                catch (Exception ex)
+                {
+                    Log.Write(ex);
+                    if (!closing) await Message("WinMac Dock", ex.Message);
+                }
+            };
             menu.Items.Add(empty);
         }
         if (entry.Item.IsAutoUsbPin)
@@ -2289,12 +2303,17 @@ internal sealed partial class DockWindow : Window
         var options = new MenuFlyoutSubItem { Text = "Options" };
         var windows = entry.Windows.Where(w => Native.IsWindow(w.Handle)).ToArray();
         if (ShellService.IsXbox(entry.Item) && windows.Length == 0) return;
-        if (entry.IsPinned && !ShellService.OnlyAlwaysOnTopOptions(entry.Item) && !ShellService.IsXbox(entry.Item))
+        bool separateRunningItem = !entry.IsPinned && Settings.GroupWindows && !Settings.CombinePinnedIconsWithRunningApplications;
+        var bulkWindows = separateRunningItem
+            ? DockClickPolicy.Similar(entry, ReadDockWindows()).Where(w => Native.IsWindow(w.Handle)).ToArray()
+            : windows;
+        bool pinnedBulkOptions = entry.IsPinned && !ShellService.OnlyAlwaysOnTopOptions(entry.Item) && !ShellService.IsXbox(entry.Item);
+        if (pinnedBulkOptions || (separateRunningItem && bulkWindows.Length > 1))
         {
-            SubMenu(options, "Restore all windows", () => { foreach (var window in entry.Windows) ShellService.Activate(window, false); });
-            SubMenu(options, "Minimize all windows", () => { foreach (var window in entry.Windows) ShellService.Activate(window, true); });
-            if (windows.Length > 0)
-                SubMenu(options, "Close all windows", () => { foreach (var window in windows.Where(w => Native.IsWindow(w.Handle))) ShellService.Close(window); });
+            SubMenu(options, "Restore all windows", () => { foreach (var window in bulkWindows) ShellService.Activate(window, false); });
+            SubMenu(options, "Minimize all windows", () => { foreach (var window in bulkWindows) ShellService.Activate(window, true); });
+            if (bulkWindows.Length > 0)
+                SubMenu(options, "Close all windows", () => { foreach (var window in bulkWindows.Where(w => Native.IsWindow(w.Handle))) ShellService.Close(window); });
             options.Items.Add(new MenuFlyoutSeparator());
         }
         bool IsTopmost(TaskWindow window) => (Native.GetWindowLongPtrW(window.Handle, -20).ToInt64() & 8) != 0;
@@ -2390,7 +2409,7 @@ internal sealed partial class DockWindow : Window
     }
     private void OpenExplorerTab()
     {
-        var windows = tracker.Read().Where(w =>
+        var windows = ReadDockWindows().Where(w =>
             IsFileExplorer(new DockItem { ExecutablePath = w.ExecutablePath })
             && Native.Class(w.Handle) is "CabinetWClass" or "ExploreWClass");
         var target = tracker.MostRecentlyUsed(windows).FirstOrDefault();
@@ -2761,14 +2780,45 @@ internal sealed partial class DockWindow : Window
         try
         {
             var window = new Window { Title = title };
-            window.AppWindow.Resize(new Windows.Graphics.SizeInt32(520, 260));
             IconResources.SetWindowIcon(window);
-            var panel = new StackPanel { Padding = new Thickness(24), Spacing = 20 };
+            var panel = new StackPanel { Padding = new Thickness(24, 24, 24, 16), Spacing = 20 };
             panel.Children.Add(new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap });
             var close = new Button { Content = "OK", HorizontalAlignment = HorizontalAlignment.Right };
-            close.Click += (_, _) => window.Close(); panel.Children.Add(close);
+            close.Click += (_, _) => window.Close();
+            panel.Children.Add(close);
             var chrome = new WindowChrome(window, panel, root.ActualTheme);
-            chrome.Root.Loaded += async (_, _) => chrome.Icon.Source = await IconService.Load(IconResources.PathFor(BundledIcons.Application), imageFile: true, requestedPixels: 32);
+            void UpdateMessageBackground()
+            {
+                byte shade = chrome.Root.ActualTheme == ElementTheme.Dark ? (byte)0x2C : (byte)0xFC;
+                panel.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, shade, shade, shade));
+            }
+            UpdateMessageBackground();
+            chrome.Root.ActualThemeChanged += (_, _) => UpdateMessageBackground();
+            var appWindow = window.AppWindow;
+            if (appWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter)
+            {
+                presenter.IsResizable = false;
+                presenter.IsMaximizable = false;
+            }
+            var display = ResolveDisplay();
+            var work = display.Work;
+            int width = Math.Min(work.Width, (int)Math.Round(506 * display.Scale));
+            var handle = WinRT.Interop.WindowNative.GetWindowHandle(window);
+            void Position(int height) => appWindow.MoveAndResize(new Windows.Graphics.RectInt32(
+                work.Left + (work.Width - width) / 2, work.Top + Math.Max(0, (work.Height - height) / 2), width, height));
+
+            Position(appWindow.Size.Height);
+            chrome.Root.Loaded += async (_, _) =>
+            {
+                var client = Native.ClientBounds(handle);
+                double scale = chrome.Root.XamlRoot.RasterizationScale;
+                // Measure the styled controls at the real client width with no height constraint.
+                panel.Measure(new Windows.Foundation.Size(client.Width / scale, double.PositiveInfinity));
+                int frameHeight = Math.Max(0, appWindow.Size.Height - client.Height);
+                int contentHeight = (int)Math.Ceiling((chrome.Root.RowDefinitions[0].Height.Value + panel.DesiredSize.Height) * scale);
+                Position(frameHeight + contentHeight);
+                chrome.Icon.Source = await IconService.Load(IconResources.PathFor(BundledIcons.Application), imageFile: true, requestedPixels: 32);
+            };
              window.Activate(); await Task.CompletedTask;
         }
         catch (Exception ex) { Log.Write(ex); }

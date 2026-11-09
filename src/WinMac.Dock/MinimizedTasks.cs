@@ -102,7 +102,8 @@ internal sealed partial class DockWindow
     private bool MinimizedOnly => Settings.RedirectWindowAnimations && Settings.ShowMinimizedApplicationsOnly;
     private PixelRect? PendingMinimizeTarget(TaskWindow task)
     {
-        var prospective = tracker.Read().Where(w => w.Handle != task.Handle).Append(task with { Minimized = true }).ToArray();
+        if (Settings.Exclusions.Matches(task)) return null;
+        var prospective = ReadDockWindows().Where(w => w.Handle != task.Handle).Append(task with { Minimized = true }).ToArray();
         var entries = TaskReconciler.Reconcile(Settings.Items, prospective, Settings.GroupWindows, Settings.CombinePinnedIconsWithRunningApplications, true);
         var flags = entries.Select(e => e.Item.Kind != ItemKind.Separator).ToList();
         int index = entries.FindIndex(e => e.Windows.Any(w => w.Handle == task.Handle));

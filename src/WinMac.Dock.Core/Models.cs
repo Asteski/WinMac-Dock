@@ -137,6 +137,7 @@ public sealed record DockSettings
     public bool KeepVisibleOnDesktop { get; set; } = true;
     public Dictionary<string, DockItem> RememberedItemProperties { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public int Version { get; set; } = 1;
+    public bool RecycleBinDefaultsUpdated { get; set; }
     public int IconSize { get; set; } = 32;
     public int FolderFlyoutIconSize { get; set; } = 40;
     public int MagnifiedSize { get; set; } = 48;
@@ -224,6 +225,7 @@ public sealed record DockSettings
     public IndicatorAccentMode IndicatorAccent { get; set; } = IndicatorAccentMode.Focused;
     public bool HideImmediatelyForFullscreen { get; set; } = true;
     public List<string> FullscreenExclusions { get; set; } = [];
+    public WindowExclusions Exclusions { get; set; } = new();
     public bool RedirectWindowAnimations { get; set; } = true;
     public bool ShowMinimizedApplicationsOnly { get; set; }
     [System.Text.Json.Serialization.JsonIgnore]
@@ -284,6 +286,8 @@ public sealed record DockSettings
         if (!Enum.IsDefined(ManualRevealBehavior)) ManualRevealBehavior = ManualRevealBehavior.TemporaryOverlay;
         if (HotkeyModifiers == 0 || (HotkeyModifiers & ~7u) != 0) HotkeyModifiers = 3;
         if (!DockHotkey.IsValidKey(HotkeyKey)) HotkeyKey = 0x44;
+        Exclusions ??= new();
+        Exclusions.Normalize();
         FullscreenExclusions = (FullscreenExclusions ?? []).Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim().Trim('"')).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         Items ??= [];
         RememberedItemProperties = new(RememberedItemProperties ?? [], StringComparer.OrdinalIgnoreCase);
@@ -292,7 +296,18 @@ public sealed record DockSettings
         foreach (var rule in TaskClickOverrides) { rule.Actions ??= new(); rule.Actions.Validate(); }
         for (int index = 0; index < Items.Count; index++) Items[index] = DockApplicationIdentity.NormalizePin(Items[index]);
         var ids = new HashSet<string>();
-        foreach (var item in Items.Concat(RememberedItemProperties.Values)) ModuleIconDefaults.Upgrade(item);
+        foreach (var item in Items.Concat(RememberedItemProperties.Values))
+        {
+            ModuleIconDefaults.Upgrade(item);
+            if (!RecycleBinDefaultsUpdated && item.Kind == ItemKind.RecycleBin
+                && item.RecycleEmptyDarkIcon == BundledIcons.RecycleEmptyDark
+                && item.RecycleFullDarkIcon == BundledIcons.RecycleFullDark)
+            {
+                item.RecycleEmptyDarkIcon = "";
+                item.RecycleFullDarkIcon = "";
+            }
+        }
+        RecycleBinDefaultsUpdated = true;
         foreach (var item in Items)
         {
             if (string.IsNullOrWhiteSpace(item.Id) || !ids.Add(item.Id)) { item.Id = Guid.NewGuid().ToString("N"); ids.Add(item.Id); }
@@ -319,7 +334,10 @@ public readonly record struct PixelRect(int Left, int Top, int Right, int Bottom
     public bool Contains(int x, int y) => x >= Left && x < Right && y >= Top && y < Bottom;
 }
 
-public sealed record TaskWindow(nint Handle, string Title, string ExecutablePath, string AppUserModelId, PixelRect Bounds, bool Minimized, bool Maximized);
+public sealed record TaskWindow(nint Handle, string Title, string ExecutablePath, string AppUserModelId, PixelRect Bounds, bool Minimized, bool Maximized)
+{
+    public string ClassName { get; init; } = "";
+}
 public sealed record DockEntry(DockItem Item, TaskWindow? Window, bool IsPinned, IReadOnlyList<TaskWindow>? Group = null)
 {
     public IReadOnlyList<TaskWindow> Windows => Group ?? (Window == null ? Array.Empty<TaskWindow>() : new[] { Window! });

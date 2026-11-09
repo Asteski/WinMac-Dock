@@ -110,7 +110,7 @@ internal sealed partial class SettingsWindow : Window
         placementDisplay = displayIdentity ?? dock.DisplayIdentity; IconResources.SetWindowIcon(this); AppWindow.TitleBar.IconShowOptions = Microsoft.UI.Windowing.IconShowOptions.ShowIconAndSystemMenu; Title = SettingsTitle(); SystemBackdrop = new MicaBackdrop(); SizeForCurrentMonitor();
         var layout = new Grid(); layout.ColumnDefinitions.Add(new() { Width = new GridLength(190) }); layout.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
         var nav = new StackPanel { Spacing = 6, Padding = new Thickness(16, 18, 10, 18), Background = new SolidColorBrush(Windows.UI.Color.FromArgb(18, 128, 128, 128)) };
-        foreach (var category in new[] { "General", "Appearance", "Position", "Behaviour", "Effects", "Advanced" })
+        foreach (var category in new[] { "General", "Appearance", "Position", "Behaviour", "Effects", "Exclusions", "Advanced" })
         {
             var categoryButton = new Button { Content = category, HorizontalContentAlignment = HorizontalAlignment.Left, HorizontalAlignment = HorizontalAlignment.Stretch };
             categoryButton.Click += (_, _) => { selectedCategory = category; ShowCategory(category); };
@@ -122,11 +122,17 @@ internal sealed partial class SettingsWindow : Window
         Grid.SetColumn(nav, 0); layout.Children.Add(nav); Grid.SetColumn(content, 1); layout.Children.Add(content); content.Content = page;
         var root = new Grid(); root.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) }); root.RowDefinitions.Add(new() { Height = GridLength.Auto });
         root.Children.Add(layout);
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right, Padding = new Thickness(20, 12, 20, 16) };
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right };
+        var footer = new Grid { Padding = new Thickness(20, 12, 20, 16), ColumnSpacing = 8 };
+        footer.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+        footer.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        var exit = new Button { Content = "Exit", Width = 84 };
+        exit.Click += (_, _) => { RestoreAppliedSettings(); closingWithResult = true; (App.Dock ?? dock).Close(); };
+        footer.Children.Add(exit);
         var ok = new Button { Content = "OK", Width = 84 }; ok.Click += (_, _) => { if (!CommitSettings()) return; closingWithResult = true; Close(); };
         var cancel = new Button { Content = "Cancel", Width = 84 }; cancel.Click += (_, _) => { RestoreAppliedSettings(); closingWithResult = true; Close(); };
         apply.Click += (_, _) => CommitSettings();
-        actions.Children.Add(ok); actions.Children.Add(cancel); actions.Children.Add(apply); Grid.SetRow(actions, 1); root.Children.Add(actions);
+        actions.Children.Add(ok); actions.Children.Add(cancel); actions.Children.Add(apply); Grid.SetColumn(actions, 1); footer.Children.Add(actions); Grid.SetRow(footer, 1); root.Children.Add(footer);
         appliedSettings = System.Text.Json.JsonSerializer.Serialize(dock.Settings);
         chrome = new WindowChrome(this, root, dock.Settings.Theme switch { DockTheme.Light => ElementTheme.Light, DockTheme.Dark => ElementTheme.Dark, _ => ElementTheme.Default });
         chrome.Root.Loaded += async (_, _) =>
@@ -349,6 +355,7 @@ internal sealed partial class SettingsWindow : Window
             ["Position"] = "Where the dock appears and how it fits the display.",
             ["Behaviour"] = "Visibility, windows, and workspace behavior.",
             ["Effects"] = "Dock borders, corners, and visual styling.",
+            ["Exclusions"] = "Choose which running windows are hidden from the dock.",
             ["Advanced"] = "Motion and interaction tuning."
         };
         foreach (var (name, pageDescription) in descriptions)
@@ -411,6 +418,29 @@ internal sealed partial class SettingsWindow : Window
             if (child is not Slider || !string.IsNullOrWhiteSpace(text)) (category, section, description) = Classify(text, category, section);
             panel.Children.Remove(child); Section(category, section, description).Children.Add(child);
         }
+        var exclusions = Section("Exclusions", "Running windows",
+            "A window is hidden if any rule matches, ignoring case. Pinned shortcuts stay visible.");
+        var rules = dock.Settings.Exclusions;
+        AddExclusionList("Window title", "Example: Downloads; *Setup*", rules.WindowTitles, values => rules.WindowTitles = values);
+        AddExclusionList("Process name", "Example: notepad.exe; helper*.exe", rules.ProcessNames, values => rules.ProcessNames = values);
+        AddExclusionList("Class name", "Example: CabinetWClass; Chrome_WidgetWin_?", rules.ClassNames, values => rules.ClassNames = values);
+
+        void AddExclusionList(string label, string placeholder, List<string> values, Action<List<string>> update)
+        {
+            var input = new TextBox
+            {
+                Header = label, PlaceholderText = placeholder,
+                Text = string.Join("; ", values), TextWrapping = TextWrapping.Wrap
+            };
+            ScrollViewer.SetHorizontalScrollBarVisibility(input, ScrollBarVisibility.Disabled);
+            ScrollViewer.SetVerticalScrollBarVisibility(input, ScrollBarVisibility.Disabled);
+            input.TextChanged += (_, _) =>
+            {
+                update(input.Text.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).ToList());
+                PreviewSettings();
+            };
+            exclusions.Children.Add(input);
+        }
         ShowCategory(selectedCategory);
     }
     private void ShowCategory(string category)
@@ -424,6 +454,7 @@ internal sealed partial class SettingsWindow : Window
             "Position" => "Where the dock appears and how it fits the display.",
             "Behaviour" => "Visibility, windows, and workspace behavior.",
             "Effects" => "Dock borders, corners, and visual styling.",
+            "Exclusions" => "Separate rules with semicolons. Use * for any number of characters and ? for one character.",
             _ => "Motion and interaction tuning."
         };
         categoryScroll.Content = selected;
@@ -717,16 +748,13 @@ internal sealed partial class SettingsWindow : Window
         try
         {
             // Shell automation enumerates on an STA, away from the UI thread.
-            var apps = await RunSta(ShellService.InstalledApps);
+            var apps = await ShellService.RunSta(ShellService.InstalledApps);
             list.ItemsSource = apps; status.Text = $"{apps.Count} applications";
             search.TextChanged += (_, _) => list.ItemsSource = apps.Where(a => a.Name.Contains(search.Text, StringComparison.CurrentCultureIgnoreCase)).ToList();
         }
         catch (Exception ex) { status.Text = "Could not enumerate applications: " + ex.Message; }
     }
-    private static Task<T> RunSta<T>(Func<T> action)
-    {
-        var completion = new TaskCompletionSource<T>(); var thread = new Thread(() => { try { completion.SetResult(action()); } catch (Exception ex) { completion.SetException(ex); } }); thread.SetApartmentState(ApartmentState.STA); thread.IsBackground = true; thread.Start(); return completion.Task;
-    }
+
     private void ShowItems()
     {
         Header("Dock items", dock.Settings.LockIconPositions ? "Icon positions are locked. Hold Alt while dragging to rearrange them." : "Drag pinned items on the dock to reorder them, or edit their launch details here.");

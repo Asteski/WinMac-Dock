@@ -320,9 +320,10 @@ internal sealed class ItemPropertiesWindow : Window
         panel.RequestedTheme = ElementTheme.Default;
         foreach (var box in new[] { target, icon, darkIcon, identity }) box.TextChanged += (_, _) => _ = RefreshPreview();
         panel.ActualThemeChanged += (_, _) => _ = RefreshPreview();
-        panel.Loaded += (_, _) => { FitHeight(); _ = RefreshPreview(); };
+        var display = dock.ResolveDisplay();
+        panel.Loaded += (_, _) => { FitHeight(display); _ = RefreshPreview(); };
         Closed += (_, _) => { Native.RemoveWindowSubclass(WinRT.Interop.WindowNative.GetWindowHandle(this), fixedHeightProc, 104); closed = true; previewRevision++; try { File.Delete(windowIcon); } catch { } };
-        AppWindow.Resize(new Windows.Graphics.SizeInt32(600, 650));
+        PositionCentered(display, 650);
         TrackEdits(panel);
         // Icon cards edit backing text boxes rather than displaying them.
         // Include those values so Browse and Reset enable Apply as well.
@@ -330,15 +331,20 @@ internal sealed class ItemPropertiesWindow : Window
         appliedValues = CurrentValues();
         UpdateApplyState();
     }
-    private void FitHeight()
+    private void FitHeight(MonitorData display)
     {
-        panel.Measure(new Windows.Foundation.Size(584, double.PositiveInfinity));
+        panel.Measure(new Windows.Foundation.Size(Math.Min(584, display.Work.Width / display.Scale), double.PositiveInfinity));
         var client = Native.ClientBounds(WinRT.Interop.WindowNative.GetWindowHandle(this));
-        double scale = panel.XamlRoot?.RasterizationScale ?? 1;
-        int chrome = Math.Max(0, AppWindow.Size.Height - client.Height);
-        var monitors = Native.Monitors();
-        int maximum = (monitors.FirstOrDefault(m => m.Bounds.Contains(AppWindow.Position.X, AppWindow.Position.Y)) ?? monitors.First(m => m.Primary)).Work.Height;
-        AppWindow.Resize(new Windows.Graphics.SizeInt32((int)Math.Round(600 * scale), Math.Min(maximum, (int)Math.Ceiling((panel.DesiredSize.Height + 32) * scale) + chrome)));
+        int frameHeight = Math.Max(0, AppWindow.Size.Height - client.Height);
+        PositionCentered(display, panel.DesiredSize.Height + 32 + frameHeight / display.Scale);
+    }
+    private void PositionCentered(MonitorData display, double heightDip)
+    {
+        var work = display.Work;
+        int width = Math.Min(work.Width, (int)Math.Round(600 * display.Scale));
+        int height = Math.Min(work.Height, (int)Math.Ceiling(heightDip * display.Scale));
+        AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(
+            work.Left + (work.Width - width) / 2, work.Top + (work.Height - height) / 2, width, height));
     }
     private nint FixedHeightWindowProc(nint hwnd, uint message, nuint wp, nint lp, nuint id, nuint data)
     {

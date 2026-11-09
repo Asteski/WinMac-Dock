@@ -25,7 +25,7 @@ internal sealed partial class DockWindow
     private bool HasEdgeWindow => tracker.Read().Any(window => ShellService.IsMicrosoftEdge(new DockItem { ExecutablePath = window.ExecutablePath, AppUserModelId = window.AppUserModelId }));
     private void OpenEdgeTab(DockItem item) => TryAction(() =>
     {
-        var windows = tracker.Read().Where(window => ShellService.IsMicrosoftEdge(new DockItem { ExecutablePath = window.ExecutablePath, AppUserModelId = window.AppUserModelId }));
+        var windows = ReadDockWindows().Where(window => ShellService.IsMicrosoftEdge(new DockItem { ExecutablePath = window.ExecutablePath, AppUserModelId = window.AppUserModelId }));
         var target = tracker.MostRecentlyUsed(windows).FirstOrDefault();
         if (target == null) return;
         ShellService.Activate(target, false);

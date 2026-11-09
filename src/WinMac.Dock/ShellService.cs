@@ -147,10 +147,58 @@ internal static partial class ShellService
         }
         catch (Exception ex) { Log.Write(ex); }
     }
+    internal static Task<T> RunSta<T>(Func<T> action)
+    {
+        var completion = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var thread = new Thread(() =>
+        {
+            try { completion.SetResult(action()); }
+            catch (Exception ex) { completion.SetException(ex); }
+        }) { IsBackground = true };
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        return completion.Task;
+    }
+
+    private static long lastRecycleCount;
+    private static int emptyingRecycleBin;
+    internal static bool IsEmptyingRecycleBin => Volatile.Read(ref emptyingRecycleBin) != 0;
+
     public static long RecycleCount()
+    {
+        // Shell queries can wait for the same operation that is deleting files.
+        if (IsEmptyingRecycleBin) return Interlocked.Read(ref lastRecycleCount);
+        long count = QueryRecycleCount();
+        Interlocked.Exchange(ref lastRecycleCount, count);
+        return count;
+    }
+
+    private static long QueryRecycleCount()
     {
         var info = new Native.SHQUERYRBINFO { Size = Marshal.SizeOf<Native.SHQUERYRBINFO>() };
         return Native.SHQueryRecycleBin(null, ref info) == 0 ? info.Items : 0;
+    }
+
+    internal static async Task<bool> EmptyRecycleBinAsync(bool confirm)
+    {
+        if (Interlocked.Exchange(ref emptyingRecycleBin, 1) != 0) return false;
+        try
+        {
+            return await RunSta(() =>
+            {
+                long before = QueryRecycleCount();
+                Interlocked.Exchange(ref lastRecycleCount, before);
+                if (before == 0) return false;
+
+                // Shell dialogs are owned by the worker so they cannot disable the Dock window.
+                // Suppress the shell sound so the Dock can play its configured sound once.
+                int result = Native.SHEmptyRecycleBin(0, null, (confirm ? 0u : 1u) | 4u);
+                long after = QueryRecycleCount();
+                Interlocked.Exchange(ref lastRecycleCount, after);
+                return result == 0 && after < before;
+            });
+        }
+        finally { Volatile.Write(ref emptyingRecycleBin, 0); }
     }
     public static void PlayRecycleSound(bool empty, int volumePercent)
     {

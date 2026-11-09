@@ -119,7 +119,7 @@ internal sealed partial class DockWindow
         if (explorerMenuFolders == null || System.Diagnostics.Stopwatch.GetElapsedTime(explorerMenuFoldersStamp).TotalMilliseconds >= 500)
         {
             explorerMenuFoldersStamp = System.Diagnostics.Stopwatch.GetTimestamp();
-            var handles = tracker.Read().Where(window => IsFileExplorer(new DockItem { ExecutablePath = window.ExecutablePath })).Select(window => window.Handle).ToHashSet();
+            var handles = ReadDockWindows().Where(window => IsFileExplorer(new DockItem { ExecutablePath = window.ExecutablePath })).Select(window => window.Handle).ToHashSet();
             explorerMenuFolders = ShellService.ExplorerWindowFoldersAsync(handles);
         }
         return explorerMenuFolders;

@@ -105,7 +105,7 @@ internal sealed class TaskTracker : IDisposable
             }
             if (string.IsNullOrEmpty(appId) && string.IsNullOrEmpty(identity.Id) && string.IsNullOrEmpty(identity.Path)) return null;
         }
-        return new(hwnd, title, identity.Path, string.IsNullOrEmpty(appId) ? identity.Id : appId, Native.Bounds(hwnd), Native.IsIconic(hwnd), Native.IsZoomed(hwnd));
+        return new(hwnd, title, identity.Path, string.IsNullOrEmpty(appId) ? identity.Id : appId, Native.Bounds(hwnd), Native.IsIconic(hwnd), Native.IsZoomed(hwnd)) { ClassName = cls };
     }
     private (string Path, string Id) ReadIdentity(uint pid, HashSet<uint>? livePids)
     {
