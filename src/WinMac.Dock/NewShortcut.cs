@@ -27,6 +27,14 @@ internal sealed partial class DockWindow
         var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8 };
         string? chosenIcon = null;
         var assignIcon = new Button { Content = "Assign icon" };
+        var iconPreview = new Image { Width = 16, Height = 16, Stretch = Stretch.Uniform, VerticalAlignment = VerticalAlignment.Center };
+        var iconFilename = new TextBlock { TextTrimming = TextTrimming.CharacterEllipsis, MaxLines = 1, VerticalAlignment = VerticalAlignment.Center };
+        var iconDetails = new Grid { ColumnSpacing = 8, Margin = new Thickness(8, 0, 8, 0), Visibility = Visibility.Collapsed };
+        iconDetails.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        iconDetails.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+        iconDetails.Children.Add(iconPreview);
+        Grid.SetColumn(iconFilename, 1);
+        iconDetails.Children.Add(iconFilename);
         assignIcon.Click += async (_, _) =>
         {
             try
@@ -39,6 +47,25 @@ internal sealed partial class DockWindow
                 string? selected = await ShortcutIconPicker.Choose(file.Path, root.ActualTheme);
                 if (selected == null || shortcutWindow != window) return;
                 chosenIcon = selected;
+                iconFilename.Text = file.Name;
+                ToolTipService.SetToolTip(iconFilename, file.Path);
+                ToolTipService.SetToolTip(iconPreview, file.Path);
+                iconPreview.Source = null;
+                iconDetails.Visibility = Visibility.Visible;
+                ImageSource? preview;
+                if (file.FileType.Equals(".svg", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Keep the SVG's intrinsic viewport and let the Image fit it into the preview.
+                    var vector = new Microsoft.UI.Xaml.Media.Imaging.SvgImageSource();
+                    using var stream = await file.OpenReadAsync();
+                    var status = await vector.SetSourceAsync(stream);
+                    preview = status == Microsoft.UI.Xaml.Media.Imaging.SvgImageSourceLoadStatus.Success ? vector : null;
+                }
+                else
+                {
+                    preview = await IconService.Load(selected, imageFile: true, requestedPixels: (int)Math.Ceiling(16 * dpi));
+                }
+                if (shortcutWindow == window && chosenIcon == selected) iconPreview.Source = preview;
             }
             catch (Exception ex) { Log.Write(ex); if (shortcutWindow == window) { error.Text = ex.Message; error.Visibility = Visibility.Visible; } }
         };
@@ -58,16 +85,28 @@ internal sealed partial class DockWindow
         };
         actions.Children.Add(cancel); actions.Children.Add(add);
         var footer = new Grid();
-        assignIcon.HorizontalAlignment = HorizontalAlignment.Left;
-        footer.Children.Add(assignIcon); footer.Children.Add(actions); panel.Children.Add(footer);
+        footer.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        footer.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+        footer.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        footer.Children.Add(assignIcon);
+        Grid.SetColumn(iconDetails, 1); footer.Children.Add(iconDetails);
+        Grid.SetColumn(actions, 2); footer.Children.Add(actions);
+        panel.Children.Add(footer);
         var chrome = new WindowChrome(window, panel, root.ActualTheme);
         bool windowClosed = false;
-        window.Closed += (_, _) => windowClosed = true;
+        var handle = WinRT.Interop.WindowNative.GetWindowHandle(window);
+        if (window.AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter) presenter.IsMaximizable = false;
+        Native.SetWindowSubclass(handle, Native.FixedHeightSubclass, 104, 0);
+        window.Closed += (_, _) =>
+        {
+            windowClosed = true;
+            Native.RemoveWindowSubclass(handle, Native.FixedHeightSubclass, 104);
+        };
         void FitHeight()
         {
             if (windowClosed) return;
             chrome.Root.UpdateLayout();
-            var client = Native.ClientBounds(WinRT.Interop.WindowNative.GetWindowHandle(window));
+            var client = Native.ClientBounds(handle);
             int frameHeight = window.AppWindow.Size.Height - client.Height;
             panel.Measure(new Windows.Foundation.Size(client.Width / dpi, double.PositiveInfinity));
             int height = (int)Math.Ceiling((32 + panel.DesiredSize.Height) * dpi) + frameHeight;

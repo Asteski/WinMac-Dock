@@ -6,7 +6,7 @@
     <WindowsPackageType>None</WindowsPackageType><WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <ApplicationManifest>app.manifest</ApplicationManifest><Win32Resource>$(MSBuildProjectDirectory)/obj/$(Platform)/$(Configuration)/$(TargetFramework)/DockIcons.res</Win32Resource><Platforms>x64;ARM64</Platforms><PlatformTarget Condition="'$(Platform)' == 'ARM64'">ARM64</PlatformTarget><PlatformTarget Condition="'$(Platform)' != 'ARM64'">x64</PlatformTarget>
 
-    <Version>0.9.0-beta</Version><AssemblyVersion>0.9.0.0</AssemblyVersion><FileVersion>0.9.0.0</FileVersion><InformationalVersion>Beta v0.9.0</InformationalVersion>
+    <Version>0.9.1-beta</Version><AssemblyVersion>0.9.1.0</AssemblyVersion><FileVersion>0.9.1.0</FileVersion><InformationalVersion>Beta v0.9.1</InformationalVersion>
     <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks><ImplicitUsings>disable</ImplicitUsings>
   </PropertyGroup>

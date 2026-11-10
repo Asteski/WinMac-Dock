@@ -26,7 +26,7 @@ internal sealed partial class SettingsWindow
             list.SelectionChanged += (_, _) => remove.IsEnabled = list.SelectedItem != null;
             remove.Click += (_, _) => { if (list.SelectedItem is string rule) rules.Remove(rule); };
             var body = new StackPanel { Spacing = 10, MinWidth = 380 };
-            body.Children.Add(new TextBlock { Text = "Keep the dock visible while these applications are fullscreen. Manual hiding still works. Executable names match any installation; full paths and app IDs match that specific application.", TextWrapping = TextWrapping.Wrap });
+            body.Children.Add(new TextBlock { Text = "Matching apps are exempt from fullscreen-triggered hiding. Manual hiding and other visibility rules still apply. Executable names match any installation; full paths and app IDs match that specific application.", TextWrapping = TextWrapping.Wrap });
             body.Children.Add(list); body.Children.Add(remove); body.Children.Add(apps); body.Children.Add(addApp); body.Children.Add(manual); body.Children.Add(addManual);
             var dialog = new ContentDialog { XamlRoot = ((FrameworkElement)Content).XamlRoot, Title = "Fullscreen exclusions", Content = new ScrollViewer { Content = body, MaxHeight = 520 }, PrimaryButtonText = "Save", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Primary };
             if (await dialog.ShowAsync() == ContentDialogResult.Primary)

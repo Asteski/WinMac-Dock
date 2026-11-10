@@ -78,7 +78,6 @@ internal sealed class ItemPropertiesWindow : Window
     private readonly ComboBox? edgeProfiles;
     private readonly ComboBox? edgeWorkspaces;
     private readonly ComboBox? explorerRecent, explorerPinned;
-    private readonly Native.SubclassProc fixedHeightProc;
     private readonly ComboBox? downloadsView;
     private readonly ComboBox? downloadsSort;
     private readonly ComboBox? downloadsDisplay;
@@ -109,7 +108,6 @@ internal sealed class ItemPropertiesWindow : Window
     public ItemPropertiesWindow(DockWindow dock, DockItem item)
     {
         this.dock = dock; this.item = item;
-        fixedHeightProc = FixedHeightWindowProc;
         Title = $"{item.Name} Properties"; SystemBackdrop = new MicaBackdrop();
         IconResources.SetWindowIcon(this);
         AppWindow.TitleBar.IconShowOptions = Microsoft.UI.Windowing.IconShowOptions.ShowIconAndSystemMenu;
@@ -316,13 +314,13 @@ internal sealed class ItemPropertiesWindow : Window
         chrome = new WindowChrome(this, new ScrollViewer { Content = panel, HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }, panel.RequestedTheme);
         chrome.Root.AddHandler(UIElement.KeyDownEvent, new Microsoft.UI.Xaml.Input.KeyEventHandler((_, e) => { if (e.Key == Windows.System.VirtualKey.Escape) { e.Handled = true; Close(); } }), true);
         if (AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter) presenter.IsMaximizable = false;
-        Native.SetWindowSubclass(WinRT.Interop.WindowNative.GetWindowHandle(this), fixedHeightProc, 104, 0);
+        Native.SetWindowSubclass(WinRT.Interop.WindowNative.GetWindowHandle(this), Native.FixedHeightSubclass, 104, 0);
         panel.RequestedTheme = ElementTheme.Default;
         foreach (var box in new[] { target, icon, darkIcon, identity }) box.TextChanged += (_, _) => _ = RefreshPreview();
         panel.ActualThemeChanged += (_, _) => _ = RefreshPreview();
         var display = dock.ResolveDisplay();
         panel.Loaded += (_, _) => { FitHeight(display); _ = RefreshPreview(); };
-        Closed += (_, _) => { Native.RemoveWindowSubclass(WinRT.Interop.WindowNative.GetWindowHandle(this), fixedHeightProc, 104); closed = true; previewRevision++; try { File.Delete(windowIcon); } catch { } };
+        Closed += (_, _) => { Native.RemoveWindowSubclass(WinRT.Interop.WindowNative.GetWindowHandle(this), Native.FixedHeightSubclass, 104); closed = true; previewRevision++; try { File.Delete(windowIcon); } catch { } };
         PositionCentered(display, 650);
         TrackEdits(panel);
         // Icon cards edit backing text boxes rather than displaying them.
@@ -345,22 +343,6 @@ internal sealed class ItemPropertiesWindow : Window
         int height = Math.Min(work.Height, (int)Math.Ceiling(heightDip * display.Scale));
         AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(
             work.Left + (work.Width - width) / 2, work.Top + (work.Height - height) / 2, width, height));
-    }
-    private nint FixedHeightWindowProc(nint hwnd, uint message, nuint wp, nint lp, nuint id, nuint data)
-    {
-        var result = Native.DefSubclassProc(hwnd, message, wp, lp);
-        if (message == 0x0084)
-        {
-            // Remove vertical resize grips without restricting programmatic sizing.
-            return result.ToInt64() switch
-            {
-                12 or 15 => 1, // top/bottom -> client
-                13 or 16 => 10, // left corners -> left edge
-                14 or 17 => 11, // right corners -> right edge
-                _ => result
-            };
-        }
-        return result;
     }
     private static ComboBox CommandsDropdown(string header, AdditionalCommandsVisibility value) => new() { Header = header, ItemsSource = new[] { "Show in main menu", "Show in submenu", "Hide" }, SelectedIndex = Math.Clamp((int)value, 0, 2), HorizontalAlignment = HorizontalAlignment.Stretch };
     private static Slider GridSizeSlider(string header, int value)

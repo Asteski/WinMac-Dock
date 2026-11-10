@@ -249,6 +249,31 @@ internal static class Native
         // WinUI. Black erase leaves zero alpha for composition to blend correctly.
         return dc != 0 && GetClientRect(hwnd, out var rect) && FillRect(dc, ref rect, GetStockObject(4)) != 0;
     }
+    internal static readonly SubclassProc FixedHeightSubclass = FixedHeightWindowProc;
+    private static nint FixedHeightWindowProc(nint hwnd, uint message, nuint wp, nint lp, nuint id, nuint data)
+    {
+        var result = Native.DefSubclassProc(hwnd, message, wp, lp);
+        if (message == 0x0214 && lp != 0 && GetWindowRect(hwnd, out var current)) // WM_SIZING, including keyboard resizing.
+        {
+            var proposed = Marshal.PtrToStructure<RECT>(lp);
+            proposed.Top = current.Top;
+            proposed.Bottom = current.Bottom;
+            Marshal.StructureToPtr(proposed, lp, false);
+            return 1;
+        }
+        if (message == 0x0084)
+        {
+            // Remove vertical resize grips without restricting programmatic sizing.
+            return result.ToInt64() switch
+            {
+                12 or 15 => 1, // top/bottom -> client
+                13 or 16 => 10, // left corners -> left edge
+                14 or 17 => 11, // right corners -> right edge
+                _ => result
+            };
+        }
+        return result;
+    }
     [DllImport("comctl32.dll")] public static extern bool SetWindowSubclass(nint hwnd, SubclassProc callback, nuint id, nuint data);
     [DllImport("comctl32.dll")] public static extern bool RemoveWindowSubclass(nint hwnd, SubclassProc callback, nuint id);
     [DllImport("comctl32.dll")] public static extern nint DefSubclassProc(nint hwnd, uint msg, nuint wp, nint lp);

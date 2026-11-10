@@ -446,17 +446,28 @@ internal sealed partial class DockWindow
         {
             PixelRect Local(PixelRect bounds) => new(Math.Max(0, bounds.Left - hostBounds.Left), Math.Max(0, bounds.Top - hostBounds.Top),
                 Math.Min(hostBounds.Width, bounds.Right - hostBounds.Left), Math.Min(hostBounds.Height, bounds.Bottom - hostBounds.Top));
-            var current = hoverSlots.Where(slot => slot.Icon != null).Select(slot => new PixelRect(
-                Math.Max(0, (int)Math.Floor(slot.HitBounds.Left * scale) - 1),
-                Math.Max(0, (int)Math.Floor(slot.HitBounds.Top * scale) - 1),
-                Math.Min(hostBounds.Width, (int)Math.Ceiling(slot.HitBounds.Right * scale) + 1),
-                Math.Min(hostBounds.Height, (int)Math.Ceiling(slot.HitBounds.Bottom * scale) + 1))).ToArray();
+            PixelRect ArtworkRegion(Windows.Foundation.Rect bounds) => new(
+                Math.Max(0, (int)Math.Floor(bounds.Left * scale) - 1),
+                Math.Max(0, (int)Math.Floor(bounds.Top * scale) - 1),
+                Math.Min(hostBounds.Width, (int)Math.Ceiling(bounds.Right * scale) + 1),
+                Math.Min(hostBounds.Height, (int)Math.Ceiling(bounds.Bottom * scale) + 1));
+            var current = new List<PixelRect>();
+            foreach (var slot in hoverSlots)
+            {
+                if (slot.Icon == null) continue;
+                current.Add(ArtworkRegion(slot.HitBounds));
+                // A badge can extend past the bounced icon on either axis.
+                if (slot.GroupIndicator is { } badge)
+                    current.Add(ArtworkRegion(new Windows.Foundation.Rect(
+                        slot.GroupOrigin.X + slot.GroupShift.X, slot.GroupOrigin.Y + slot.GroupShift.Y,
+                        badge.Width, badge.Height)));
+            }
             // Region holes are excluded by the OS before hit testing, including
             // for windows in other processes. HTTRANSPARENT alone cannot do that.
             var regions = new[] { Local(HoverInteractionBounds), Local(resting) }.Concat(current).Concat(bounceArtworkRegions).Distinct().ToArray();
             if (!compositeHoverRegion || hoverClip == null || !nativeHoverRegions.SequenceEqual(regions))
                 Native.SetDockRegions(Handle, regions);
-            bounceArtworkRegions = current;
+            bounceArtworkRegions = current.ToArray();
             nativeHoverRegions = regions;
             compositeHoverRegion = true;
             hoverClip = Local(visibleBounds);

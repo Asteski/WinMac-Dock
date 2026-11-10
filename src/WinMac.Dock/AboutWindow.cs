@@ -5,7 +5,7 @@ using Microsoft.UI.Xaml.Media;
 namespace WinMac.Dock;
 internal sealed partial class DockWindow
 {
-    internal const string BetaVersion = "Beta v0.9.0";
+    internal const string BetaVersion = "Beta v0.9.1";
     private Window? aboutWindow;
     private void ShowAbout()
     {
