@@ -8,7 +8,9 @@ public enum AdditionalCommandsVisibility { MainMenu, Submenu, Hidden }
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum HideMode { AlwaysVisible, AfterDelay, Maximized, ActiveWindowOverlap, EdgeToggle }
 [JsonConverter(typeof(JsonStringEnumConverter))]
-public enum ManualRevealBehavior { TemporaryOverlay, RestoreReservation }
+public enum ThumbnailCornerStyle { Dynamic, Rounded, Squared }
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum ManualRevealBehavior { TemporaryOverlay, RestoreReservation, Disabled }
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum DockTheme { System, Light, Dark }
 [JsonConverter(typeof(JsonStringEnumConverter))]
@@ -181,6 +183,9 @@ public sealed record DockSettings
     public bool ShowDockSettingsInItemMenus { get; set; }
     public bool LinkDockMargins { get; set; }
     public bool GroupWindows { get; set; }
+    public bool ShowUngroupedWindowThumbnails { get; set; } = true;
+    public ThumbnailCornerStyle ThumbnailCorners { get; set; }
+    public bool UseExplorerLocationThumbnailBadge { get; set; }
     public GroupedClickBehavior GroupedClickBehavior { get; set; } = GroupedClickBehavior.ShowWindowList;
     public bool CombinePinnedIconsWithRunningApplications { get; set; } = true;
     public bool ShowItemsFromAllVirtualDesktops { get; set; }
@@ -283,6 +288,7 @@ public sealed record DockSettings
         ManualOverlayHideDelayMs = Math.Clamp(ManualOverlayHideDelayMs, 0, 5000);
         RevealDelayMs = Math.Clamp(RevealDelayMs, 0, 2000);
         if (!Enum.IsDefined(HideMode)) HideMode = HideMode.Maximized;
+        if (!Enum.IsDefined(ThumbnailCorners)) ThumbnailCorners = ThumbnailCornerStyle.Dynamic;
         if (!Enum.IsDefined(ManualRevealBehavior)) ManualRevealBehavior = ManualRevealBehavior.TemporaryOverlay;
         if (HotkeyModifiers == 0 || (HotkeyModifiers & ~7u) != 0) HotkeyModifiers = 3;
         if (!DockHotkey.IsValidKey(HotkeyKey)) HotkeyKey = 0x44;
@@ -372,7 +378,7 @@ public static class TaskReconciler
 
     public static List<DockEntry> Reconcile(IReadOnlyList<DockItem> pins, IReadOnlyList<TaskWindow> windows, bool groupWindows = false, bool combinePinnedIconsWithRunningApplications = true, bool minimizedOnly = false)
     {
-        var remaining = windows.Where(w => !minimizedOnly || w.Minimized || pins.Any(p => Matches(p, w))).ToList();
+        var remaining = windows.ToList();
         var entries = new List<DockEntry>();
         foreach (var pin in pins)
         {
@@ -385,6 +391,7 @@ public static class TaskReconciler
                 else if (match != null) remaining.Remove(match);
             }
         }
+        if (groupWindows || minimizedOnly) remaining.RemoveAll(window => !window.Minimized);
         while (remaining.Count > 0)
         {
             var w = remaining[0];

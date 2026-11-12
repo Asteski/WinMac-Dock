@@ -9,6 +9,7 @@ internal sealed class TaskTracker : IDisposable
     public IEnumerable<TaskWindow> MostRecentlyUsed(IEnumerable<TaskWindow> windows) => windows.OrderByDescending(w => activationOrder.GetValueOrDefault(w.Handle));
     public event Action? Changed;
     public event Action? ForegroundChanged;
+    public event Action<nint>? WindowMinimizing;
     private static nint ownTaskWindow;
     public nint OwnTaskWindow { get => ownTaskWindow; set => ownTaskWindow = value; }
     public nint LastExternalForeground { get; private set; } = Native.GetForegroundWindow();
@@ -37,6 +38,7 @@ internal sealed class TaskTracker : IDisposable
             // arrive after a newer foreground transition. Sample current state
             // rather than replacing it with the old event's HWND.
             if (evt == 3) {  ObserveForeground(); ForegroundChanged?.Invoke(); }
+            if (evt == 0x16 && hwnd != 0) WindowMinimizing?.Invoke(hwnd);
             if (obj == 0 || evt < 0x8000) Changed?.Invoke();
         };
         hooks.Add(Native.SetWinEventHook(3, 3, 0, callback, 0, 0, 2));

@@ -416,11 +416,11 @@ internal sealed class ItemPropertiesWindow : Window
         {
             bool dark = column == 1;
             var box = dark ? darkIcon : icon;
-            var card = new StackPanel { Spacing = 10 };
+            var card = new StackPanel { Spacing = 10, HorizontalAlignment = HorizontalAlignment.Stretch };
             card.Children.Add(new TextBlock { Text = dark ? "Dark mode icon (optional)" : "Default / Light mode icon", TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center });
             var image = new Image { Width = 48, Height = 48, Stretch = Stretch.Uniform, HorizontalAlignment = HorizontalAlignment.Center };
             card.Children.Add(image);
-            var filename = new TextBlock { TextTrimming = TextTrimming.CharacterEllipsis, TextAlignment = TextAlignment.Center, MaxLines = 1 };
+            var filename = new TextBlock { HorizontalAlignment = HorizontalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, TextAlignment = TextAlignment.Center, MaxLines = 1 };
             card.Children.Add(filename);
             var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Center };
             var reset = new Button { Content = "Reset" };
@@ -436,7 +436,8 @@ internal sealed class ItemPropertiesWindow : Window
                     : custom;
                 string defaultPath = IconService.PathFor(Draft() with { CustomIcon = "", DarkModeIcon = "" });
                 string resolved = BundledIconPath.Resolve(custom, Path.Combine(AppContext.BaseDirectory, "assets"));
-                bool isDefault = string.IsNullOrEmpty(custom) || string.Equals(resolved, defaultPath, StringComparison.OrdinalIgnoreCase);
+                bool isDefault = string.IsNullOrEmpty(custom) || string.Equals(resolved, defaultPath, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(resolved, ShortcutIconTarget.DefaultIcon, StringComparison.OrdinalIgnoreCase);
                 filename.Text = isDefault ? "Default" : Path.GetFileName(custom);
                 reset.IsEnabled = !isDefault;
                 ToolTipService.SetToolTip(filename, isDefault ? null : path);

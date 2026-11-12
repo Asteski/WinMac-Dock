@@ -233,8 +233,9 @@ internal sealed partial class DockWindow : Window
         Native.SetWindowPos(Handle, 0, 0, 0, 0, 0, 0x20 | 0x1 | 0x2 | 0x4 | 0x10);
         tray = new System.Windows.Forms.NotifyIcon { Text = "WinMac Dock", Icon = IconResources.Load(BundledIcons.Tray), Visible = false };
         tray.MouseClick += (_, e) => DispatcherQueue.TryEnqueue(() => { if (e.Button == System.Windows.Forms.MouseButtons.Right) ShowTrayMenu(); else HandleCommand("--toggle"); });
+        tracker.WindowMinimizing += handle => RecordWindowMinimize(handle);
         tracker.Changed += () => DispatcherQueue.TryEnqueue(() => { if (!reconcileTimer.IsEnabled) reconcileTimer.Start(); });
-        tracker.ForegroundChanged += () => DispatcherQueue.TryEnqueue(() => { DismissFlyoutsOnExternalFocus(); EvaluateVisibility(); });
+        tracker.ForegroundChanged += () => DispatcherQueue.TryEnqueue(() => { DismissFlyoutsOnExternalFocus(); EvaluateVisibility(); RetryForegroundWindowThumbnail(); });
         reconcileTimer.Tick += (_, _) => { reconcileTimer.Stop(); Reconcile(); };
         visibilityTimer.Tick += (_, _) => { tracker.ObserveForeground(); EvaluateVisibility(); MaintainZOrder(); };
         themeTimer.Tick += (_, _) => { if (ReadThemeIdentity() != themeIdentity || renderedMotionState != $"{Motion}|{EffectiveIconHighlights}") UpdateTheme(); };
@@ -290,8 +291,12 @@ internal sealed partial class DockWindow : Window
         var elevate = new MenuFlyoutItem { Text = IsElevated ? "Elevated" : "Elevate", IsEnabled = !IsElevated }; elevate.Click += (_, _) => RestartDock(true);
         var reload = new MenuFlyoutItem { Text = "Reload" }; reload.Click += (_, _) => RestartDock(false);
         menu.Items.Insert(insert++, elevate); menu.Items.Insert(insert++, reload);
-        var about = new MenuFlyoutItem { Text = "About", Icon = Glyph("\uE946") };
-        about.Click += (_, _) => ShowAbout();
+        var about = new MenuFlyoutItem { Text = "About", Icon = Glyph(AboutGlyph) };
+        about.Click += (_, _) =>
+        {
+            menu.Hide();
+            DispatcherQueue.TryEnqueue(() => ShowAbout());
+        };
         var hideTray = new MenuFlyoutItem { Text = "Hide tray icon" };
         hideTray.Click += (_, _) => { menu.Hide(); Settings.ShowTrayIcon = false; ApplySettings(); };
         menu.Items.Insert(insert++, hideTray);
@@ -506,10 +511,19 @@ internal sealed partial class DockWindow : Window
             Settings.HotkeyEnabled = false; Save(); _ = Message("Shortcut unavailable", DockHotkey.Label(Settings.HotkeyModifiers, Settings.HotkeyKey) + " could not be registered. It may already be used by another application. Choose another shortcut in Settings.");
         }
     }
-    public void AddItem(DockItem item, int? at = null)
+    public void AddItem(DockItem item, int? at = null, bool useNewIcon = false)
     {
         string? special = SpecialItemKey(item);
-        if (ItemPreferences.Restore(Settings, item, special) is { } remembered) item = remembered;
+        if (ItemPreferences.Restore(Settings, item, special) is { } remembered)
+        {
+            if (useNewIcon)
+            {
+                remembered.CustomIcon = item.CustomIcon;
+                remembered.DarkModeIcon = item.DarkModeIcon;
+                remembered.ExecutablePath = item.ExecutablePath;
+            }
+            item = remembered;
+        }
         else if (special != null && special is not ("taskview" or "search")) BetaDefaults.ApplyProperties(item, DefaultSpecialItem(special));
         if (item.Kind == ItemKind.StartMenu) at = 0;
         if (special is "start" or "search" or "taskview" or "downloads" or "recyclebin") pendingModuleBounces.Add(item.Id);
@@ -608,7 +622,7 @@ internal sealed partial class DockWindow : Window
             var entries = TaskReconciler.Reconcile(orderedPins, windows, Settings.GroupWindows, Settings.CombinePinnedIconsWithRunningApplications, MinimizedOnly);
             if (StartupComplete && lastSignature.Length > 0 && Motion && Settings.AnimationMs > 0 && !hidden && !dragging && popupCount == 0
                 && (rowAnimating || !buttons.Select(b => b.Entry.Item.Id).SequenceEqual(entries.Where(e => e.Item.Kind != ItemKind.Separator).Select(e => e.Item.Id))
-                    || buttons.Any(b => entries.FirstOrDefault(e => e.Item.Id == b.Entry.Item.Id)?.Windows.Count != b.Entry.Windows.Count)))
+                    || buttons.Any(b => b.Entry.IsPinned && entries.FirstOrDefault(e => e.Item.Id == b.Entry.Item.Id)?.Windows.Count != b.Entry.Windows.Count)))
                 rowCandidate ??= CaptureRowScene();
             bool hadHover = hoverWave != null && Motion;
             bool wasEngaged = hoverEngaged;
@@ -625,6 +639,14 @@ internal sealed partial class DockWindow : Window
             var liveTasks = entries.Where(e => !e.IsPinned).Select(e => e.Item.Id).ToHashSet();
             if (startupShellReady) SyncStackWatchers();
             var signature = IconPixels + ":" + ButtonSize + ":" + DisplaySpacing + ":" + dockOverflow + ":" + string.Join("|", entries.Select(x => $"{x.Item.Id}:{string.Join(',', x.Windows.Select(w => w.Handle))}:{(x.IsPinned ? x.Item.Name : "")}:{x.Item.CustomIcon}:{x.Item.DarkModeIcon}:{x.Item.ShowThumbnail}:{x.Item.AttachedDriveKind}:{x.Item.Folder.StackIcon}:{x.Item.Folder.ShowDownloadsIconUnderStack}:{x.Item.Folder.Sort}:{x.Item.Folder.Descending}:{MissingTargetForRow(x)}"));
+            signature += ":" + Settings.ShowUngroupedWindowThumbnails + ":" + Settings.GroupWindows + ":" + Settings.UseExplorerLocationThumbnailBadge;
+            PruneWindowThumbnails(windows);
+            if (Settings.ShowUngroupedWindowThumbnails)
+                signature += ":" + string.Join(',', entries.Where(UsesWindowThumbnail).Select(entry =>
+                {
+                    var thumbnail = ThumbnailWindowFor(entry);
+                    return $"{thumbnail.Handle}:{thumbnail.Minimized}";
+                }));
             bool entriesChanged = signature != lastSignature;
             if (!entriesChanged)
                 foreach (var existing in buttons.Where(b => !b.Entry.IsPinned))
@@ -793,30 +815,30 @@ internal sealed partial class DockWindow : Window
             downloadIndicators[button] = downloadIndicator;
             content.Children.Add(downloadIndicator);
         }
-        if (entry.Window != null)
+        if (entry.IsPinned && entry.Window != null)
         {
             bool rotatedIndicator = Vertical && !Settings.ForceIndicatorsToItemBase;
             var dot = new Border { Width = rotatedIndicator ? 3 : 6, Height = rotatedIndicator ? 6 : 3, CornerRadius = new CornerRadius(1.5), Background = (Brush)Application.Current.Resources["SystemControlHighlightAccentBrush"], HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Bottom, IsHitTestVisible = false };
             PositionIndicator(dot);
             runningIndicators[button] = dot;
             content.Children.Add(dot);
-            if (entry.Windows.Count > 1)
-            {
-                string count = entry.Windows.Count > 99 ? "99+" : entry.Windows.Count.ToString();
-                double side = Math.Min(DisplayIconSize, Math.Max(14, count.Length * 6 + 4));
-                double radius = !Settings.RoundedCorners && Settings.SquareGroupIndicatorsWhenUnrounded ? 0
-                    : Settings.GroupIndicatorShape switch { GroupIndicatorShape.Circle => side / 2, GroupIndicatorShape.Squircle => 4, _ => 0 };
-                bool right = Settings.GroupIndicatorCorner is GroupIndicatorCorner.TopRight or GroupIndicatorCorner.BottomRight;
-                bool bottom = Settings.GroupIndicatorCorner is GroupIndicatorCorner.BottomLeft or GroupIndicatorCorner.BottomRight;
-                double groupInset = Math.Max(0, -DisplaySpacing) / 2d;
-                double insetX = Vertical ? 0 : groupInset, insetY = Vertical ? groupInset : 0;
-                var badge = new Border { Width = side, Height = side, CornerRadius = new CornerRadius(radius), IsHitTestVisible = false,
-                    Background = (Brush)Application.Current.Resources["SystemControlBackgroundChromeMediumBrush"],
-                    HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top,
-                    Margin = new Thickness(right ? ButtonSize - side - insetX : insetX, bottom ? ButtonSize - side - insetY : insetY, 0, 0),
-                    Child = new TextBlock { Text = count, TextLineBounds = TextLineBounds.Tight, FontSize = Math.Min(10, side / Math.Max(1.4, count.Length * .65)), TextAlignment = TextAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
-                groupIndicators[button] = badge; content.Children.Add(badge);
-            }
+        }
+        if (entry.Windows.Count > 1)
+        {
+            string count = entry.Windows.Count > 99 ? "99+" : entry.Windows.Count.ToString();
+            double side = Math.Min(DisplayIconSize, Math.Max(14, count.Length * 6 + 4));
+            double radius = !Settings.RoundedCorners && Settings.SquareGroupIndicatorsWhenUnrounded ? 0
+                : Settings.GroupIndicatorShape switch { GroupIndicatorShape.Circle => side / 2, GroupIndicatorShape.Squircle => 4, _ => 0 };
+            bool right = Settings.GroupIndicatorCorner is GroupIndicatorCorner.TopRight or GroupIndicatorCorner.BottomRight;
+            bool bottom = Settings.GroupIndicatorCorner is GroupIndicatorCorner.BottomLeft or GroupIndicatorCorner.BottomRight;
+            double groupInset = Math.Max(0, -DisplaySpacing) / 2d;
+            double insetX = Vertical ? 0 : groupInset, insetY = Vertical ? groupInset : 0;
+            var badge = new Border { Width = side, Height = side, CornerRadius = new CornerRadius(radius), IsHitTestVisible = false,
+                Background = (Brush)Application.Current.Resources["SystemControlBackgroundChromeMediumBrush"],
+                HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(right ? ButtonSize - side - insetX : insetX, bottom ? ButtonSize - side - insetY : insetY, 0, 0),
+                Child = new TextBlock { Text = count, TextLineBounds = TextLineBounds.Tight, FontSize = Math.Min(10, side / Math.Max(1.4, count.Length * .65)), TextAlignment = TextAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
+            groupIndicators[button] = badge; content.Children.Add(badge);
         }
         button.Content = content;
         dragVisuals[button] = icon;
@@ -884,6 +906,7 @@ internal sealed partial class DockWindow : Window
             button.Loaded += (_, _) => QueueUsbAppearanceBounce(entry.Item, image, icon);
             QueueUsbAppearanceBounce(entry.Item, image, icon);
         }
+        bool useWindowThumbnail = UsesWindowThumbnail(entry);
         if (startupShellReady)
         {
             if (!StartupComplete && entry.Item.CapturePin != CapturePinKind.None && entry.Item.ShowThumbnail
@@ -897,9 +920,15 @@ internal sealed partial class DockWindow : Window
                     _ = LoadCaptureFileIcon(entry.Item, image, fallback, icon);
                 }
             }
-            else TrackStartupLoad(LoadIcon(entry.Item, image, fallback, icon, entry.IsPinned, !entry.IsPinned && IsFileExplorer(entry.Item) ? entry.Window?.Handle ?? 0 : 0));
+            else
+            {
+                var appIcon = LoadIcon(entry.Item, image, fallback, icon, entry.IsPinned,
+                    ExplorerLocationIconWindow(entry));
+                TrackStartupLoad(appIcon);
+                if (useWindowThumbnail) _ = ApplyWindowThumbnail(ThumbnailWindowFor(entry), image, icon);
+            }
         }
-        if (startupShellReady) TryAddShellAnimatedIcon(button, icon, entry);
+        if (startupShellReady && !useWindowThumbnail) TryAddShellAnimatedIcon(button, icon, entry);
     }
     private void PositionIndicator(Border indicator)
     {
@@ -1808,7 +1837,8 @@ internal sealed partial class DockWindow : Window
             if (hidden) ShowDock(restoreManualReservation: false);
             return;
         }
-        if (DisplayHideMode == HideMode.EdgeToggle || startupWaiting)
+        if ((DisplayHideMode == HideMode.EdgeToggle || startupWaiting)
+            && (!manuallyHidden || Settings.ManualRevealBehavior != ManualRevealBehavior.Disabled))
         {
             if (EvaluateEdgeVisibility(cursor, edge, fullscreen, fullscreenExcluded, interacting)) return;
         }
@@ -1820,7 +1850,7 @@ internal sealed partial class DockWindow : Window
         }
         if (manuallyHidden)
         {
-            if (hidden && edge)
+            if (hidden && edge && Settings.ManualRevealBehavior != ManualRevealBehavior.Disabled)
             {
                 revealSince ??= DateTime.UtcNow;
                 if ((DateTime.UtcNow - revealSince.Value).TotalMilliseconds >= Settings.RevealDelayMs)
@@ -1951,7 +1981,7 @@ internal sealed partial class DockWindow : Window
         var task = tracker.Describe(window);
         int index = DockAnimationTarget.FindIndex(buttons.Select(b => b.Entry).ToArray(), window, task);
         var match = index >= 0 ? buttons[index] : default;
-        if (match.Button == null || match.Button.ActualWidth <= 0) return task != null && MinimizedOnly ? PendingMinimizeTarget(task) : null;
+        if (match.Button == null || match.Button.ActualWidth <= 0) return task != null && (MinimizedOnly || Settings.GroupWindows) ? PendingMinimizeTarget(task) : null;
         var point = match.Button.TransformToVisual(root).TransformPoint(new Windows.Foundation.Point());
         int x = (hidden ? resting.Left : hostBounds.Left) + DockGeometry.Pixels(point.X, scale), y = (hidden ? resting.Top : hostBounds.Top) + DockGeometry.Pixels(point.Y, scale);
         int size = DockGeometry.Pixels(ButtonSize, scale);

@@ -22,6 +22,8 @@ internal sealed partial class DockWindow
         public Windows.Foundation.Point OriginalIconOffset { get; set; }
         public TranslateTransform ArtworkShift { get; } = new();
         public Grid? ArtworkCarrier { get; set; }
+        public bool UsesArtworkProxy { get; set; }
+        public double OriginalOpacity { get; set; }
         public Border? Indicator { get; set; }
         public Windows.Foundation.Point IndicatorOrigin { get; set; }
         public double IndicatorWidth { get; set; }
@@ -119,7 +121,9 @@ internal sealed partial class DockWindow
     private void UpdateMagnification(double _)
     {
         if (!StartupComplete) return;
-        if (rowAnimating && rowSpanTransition) return;
+        // Closing a tile can route pointer movement to its neighbor even
+        // while the mouse is stationary. Resume hover after the removal.
+        if (rowAnimating && (rowSpanTransition || rowRemovingItem)) return;
         if (rowAnimating) FinishRowTransition();
         if (dockOverflow || dragging || hidden || popupCount > 0 || !Motion || !DisplayMagnificationEnabled || Settings.HoverMagnificationPercent == 0) return;
         {
@@ -155,6 +159,7 @@ internal sealed partial class DockWindow
         hoverRowOffset = rowOffset;
         double rowX = (resting.Left - hostBounds.Left) / scale + (Vertical ? MarginDip(Settings.DockMarginLeft) : rowOffset);
         double rowY = (resting.Top - hostBounds.Top) / scale + (Vertical ? rowOffset : MarginDip(Settings.DockMarginTop));
+        var thumbnailTiles = children.Select(element => element is Button { Tag: DockEntry entry } && UsesWindowThumbnail(entry)).ToArray();
         hoverSlots = children.Select((element, index) =>
         {
             var shift = new TranslateTransform(); element.RenderTransform = shift;
@@ -194,13 +199,27 @@ internal sealed partial class DockWindow
             if (icon?.Parent is Grid parent)
             {
                 slot.OriginalParent = parent; slot.OriginalIndex = parent.Children.IndexOf(icon); slot.OriginalMargin = icon.Margin;
-                parent.Children.Remove(icon);
-                icon.Margin = new Thickness(0); icon.RenderTransform = null;
-                // Translation belongs to the carrier; scaling belongs to its
-                // child. Mixing both transforms on the artwork can scale its
-                // displacement too, pulling end icons into the panel border.
+                FrameworkElement artwork = icon;
+                if (thumbnailTiles[index] && icon is Grid tile && CreateThumbnailHoverProxy(tile) is { } proxy)
+                {
+                    // Keep the snapshot attached to its tile. A separate
+                    // visual can extend beyond the scroll viewer's clip.
+                    var proxyVisual = ElementCompositionPreview.GetElementVisual(proxy);
+                    proxyVisual.CenterPoint = visual!.CenterPoint;
+                    slot = slot with { Visual = proxyVisual };
+                    slot.UsesArtworkProxy = true;
+                    slot.OriginalOpacity = icon.Opacity;
+                    artwork = proxy;
+                }
+                else
+                {
+                    parent.Children.Remove(icon);
+                    icon.Margin = new Thickness(0);
+                    icon.RenderTransform = null;
+                }
                 slot.ArtworkCarrier = new Grid { Width = DisplayIconSize, Height = DisplayIconSize, RenderTransform = slot.ArtworkShift, UseLayoutRounding = false };
-                slot.ArtworkCarrier.Children.Add(icon); hoverArtwork.Children.Add(slot.ArtworkCarrier);
+                slot.ArtworkCarrier.Children.Add(artwork); hoverArtwork.Children.Add(slot.ArtworkCarrier);
+                if (slot.UsesArtworkProxy) icon.Opacity = 0;
                 Canvas.SetLeft(slot.ArtworkCarrier, slot.IconOrigin.X); Canvas.SetTop(slot.ArtworkCarrier, slot.IconOrigin.Y);
             }
             if (element is Button indicatorButton && (downloadIndicators.TryGetValue(indicatorButton, out var indicator) || runningIndicators.TryGetValue(indicatorButton, out indicator)))
@@ -212,7 +231,7 @@ internal sealed partial class DockWindow
                 {
                     slot.IndicatorParent = indicatorParent;
                     slot.IndicatorIndex = indicatorParent.Children.IndexOf(indicator);
-                    if (indicatorParent == slot.OriginalParent && slot.IndicatorIndex >= slot.OriginalIndex) slot.IndicatorIndex++;
+                    if (indicatorParent == slot.OriginalParent && !slot.UsesArtworkProxy && slot.IndicatorIndex >= slot.OriginalIndex) slot.IndicatorIndex++;
                     slot.IndicatorMargin = indicator.Margin; slot.IndicatorHorizontal = indicator.HorizontalAlignment; slot.IndicatorVertical = indicator.VerticalAlignment;
                     indicatorParent.Children.Remove(indicator);
                     indicator.Margin = new Thickness(0); indicator.HorizontalAlignment = HorizontalAlignment.Left; indicator.VerticalAlignment = VerticalAlignment.Top;
@@ -293,6 +312,23 @@ internal sealed partial class DockWindow
         hoverAvailableExpansion = Math.Max(0, (Vertical ? hostBounds.Height : hostBounds.Width) / scale - rowContent - rowStart - rowEnd);
         hoverLayoutStamp = CaptureHoverLayout();
     }
+    private static Grid? CreateThumbnailHoverProxy(Grid tile)
+    {
+        if (tile.Children.OfType<Border>().FirstOrDefault(b => b.Background is ImageBrush) is not { } snapshot
+            || tile.Children.OfType<Image>().FirstOrDefault() is not { } badge) return null;
+
+        var proxy = new Grid { Width = tile.Width, Height = tile.Height, UseLayoutRounding = false, IsHitTestVisible = false };
+        var frame = new Border { Background = snapshot.Background, Width = snapshot.Width, Height = snapshot.Height,
+            CornerRadius = snapshot.CornerRadius, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
+            UseLayoutRounding = false };
+        var icon = new Image { Width = badge.Width, Height = badge.Height, Stretch = badge.Stretch,
+            HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, UseLayoutRounding = false };
+        icon.SetBinding(Image.SourceProperty, new Microsoft.UI.Xaml.Data.Binding { Source = badge, Path = new PropertyPath(nameof(Image.Source)) });
+        proxy.Children.Add(frame);
+        proxy.Children.Add(icon);
+        return proxy;
+    }
+
     private void HoverRendering(object? sender, object args)
     {
         if (reconciling || positioning || hoverRebuilding || hoverGeometryRepairing || hoverPainting) return;
@@ -398,7 +434,7 @@ internal sealed partial class DockWindow
                     SnapSeparator(separator, slot.ElementOriginX + (Vertical ? 0 : offset), slot.ElementOriginY + (Vertical ? offset : 0));
                 if (slot.Visual != null)
                 {
-                    double bounce = LaunchOffset(slot);
+                    double bounce = slot.ArtworkCarrier != null ? LaunchOffset(slot) : 0;
                     double bounceX = Vertical ? (PositionEdge == DockEdge.Left ? bounce : -bounce) : 0;
                     double bounceY = Vertical ? 0 : PositionEdge == DockEdge.Top ? bounce : -bounce;
                     slot.ArtworkShift.X = (Vertical ? 0 : offset) + bounceX;
@@ -498,7 +534,12 @@ internal sealed partial class DockWindow
         {
             slot.Shift.X = slot.Shift.Y = 0;
             if (slot.Visual != null) slot.Visual.Scale = new(1, 1, 1);
-            if (slot.Icon != null && slot.OriginalParent != null)
+            if (slot.UsesArtworkProxy && slot.Icon != null)
+            {
+                slot.Icon.Opacity = slot.OriginalOpacity;
+                hoverArtwork.Children.Remove(slot.ArtworkCarrier!);
+            }
+            else if (slot.Icon != null && slot.OriginalParent != null)
             {
                 if (slot.ArtworkCarrier != null) { slot.ArtworkCarrier.Children.Remove(slot.Icon); hoverArtwork.Children.Remove(slot.ArtworkCarrier); }
                 slot.Icon.RenderTransform = null; slot.Icon.Margin = slot.OriginalMargin;

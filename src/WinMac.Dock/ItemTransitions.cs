@@ -22,6 +22,7 @@ internal sealed partial class DockWindow
     private bool rowAnimating, rowFinishing, rowPainting, rowStaging;
     private bool rowPopupTransition;
     private bool rowSpanTransition;
+    private bool rowRemovingItem;
     private PixelRect? spanTransitionHost;
     private PixelRect rowFromPanel, rowToPanel, rowDisplayPanel;
     private long rowStamp;
@@ -47,13 +48,15 @@ internal sealed partial class DockWindow
             bounds = new(hostBounds.Left + bounds.X * scale, hostBounds.Top + bounds.Y * scale, bounds.Width * scale, bounds.Height * scale);
             if (bounds.Width <= 0 || bounds.Height <= 0) return;
             FrameworkElement clone;
-            if (element is Border separator && separatorStrokes.TryGetValue(separator, out var stroke))
+            if (element is Border separator && separatorStrokes.TryGetValue(separator, out _))
             {
-                // Animate the painted pixel, rather than its wider clearance host.
-                // Pixel snapping below must apply to the stroke's world origin.
-                bounds = new(bounds.X + stroke.Offset.X * scale, bounds.Y + stroke.Offset.Y * scale,
-                    stroke.Size.X * scale, stroke.Size.Y * scale);
-                clone = new Border { Width = stroke.Size.X, Height = stroke.Size.Y, UseLayoutRounding = false,
+                // A rebuilt separator may not have received Loaded yet. Use
+                // its arranged geometry instead of the cached compositor size.
+                var stroke = SeparatorGeometry.CenteredStroke(point.X, point.Y,
+                    separator.ActualWidth, separator.ActualHeight, Vertical, scale);
+                bounds = new(bounds.X + stroke.X * scale, bounds.Y + stroke.Y * scale,
+                    stroke.Width * scale, stroke.Height * scale);
+                clone = new Border { Width = stroke.Width, Height = stroke.Height, UseLayoutRounding = false,
                     Background = new SolidColorBrush(Microsoft.UI.Colors.Gray) };
             }
             else clone = CloneRowVisual(element, shellIcons.Any(item => ReferenceEquals(item.Artwork, element)));
@@ -75,7 +78,12 @@ internal sealed partial class DockWindow
             var iconBounds = slot?.HitBounds;
             if (iconBounds is { } bouncing && slot != null)
                 iconBounds = OffsetRowBounce(bouncing, b.Entry.Item.Id + ":icon", -1 / scale);
-            Add(b.Entry.Item.Id + ":icon", b.Icon, iconBounds);
+            // Hover leaves the original thumbnail transparent while its copy
+            // is visible above the scroll viewer. Capture the visible copy
+            // before the row transition hides the hover layer.
+            var artwork = slot is { UsesArtworkProxy: true, ArtworkCarrier: { } carrier }
+                && carrier.Children.FirstOrDefault() is FrameworkElement proxy ? proxy : b.Icon;
+            Add(b.Entry.Item.Id + ":icon", artwork, iconBounds);
             if (runningIndicators.TryGetValue(b.Button, out var indicator)) Add(b.Entry.Item.Id + ":indicator", indicator);
             if (downloadIndicators.TryGetValue(b.Button, out var download)) Add(b.Entry.Item.Id + ":download", download);
             if (groupIndicators.TryGetValue(b.Button, out var badge)) Add(b.Entry.Item.Id + ":badge", badge);
@@ -188,13 +196,14 @@ internal sealed partial class DockWindow
         hoverRebuilding = true; ResetMagnification(); hoverRebuilding = false;
         var from = before.Sprites.ToDictionary(s => s.Key);
         var to = after.Sprites.ToDictionary(s => s.Key);
+        rowRemovingItem = before.Sprites.Any(sprite => sprite.Key.EndsWith(":icon", StringComparison.Ordinal)
+            && !to.ContainsKey(sprite.Key));
         foreach (var old in before.Sprites.Where(s => !to.ContainsKey(s.Key)))
         {
-            bool indicator = old.Key.EndsWith(":indicator", StringComparison.Ordinal) || old.Key.EndsWith(":badge", StringComparison.Ordinal)
-                || old.Key.EndsWith(":download", StringComparison.Ordinal);
+            bool indicator = old.Key.EndsWith(":indicator", StringComparison.Ordinal) || old.Key.EndsWith(":download", StringComparison.Ordinal);
             bool badge = old.Key.EndsWith(":badge", StringComparison.Ordinal);
-            var end = badge ? new Windows.Foundation.Rect(old.Bounds.X + old.Bounds.Width / 2, old.Bounds.Y + old.Bounds.Height / 2, 0, 0) : Small(old.Bounds);
-            if (indicator && !badge)
+            var end = badge ? old.Bounds : Small(old.Bounds);
+            if (indicator)
             {
                 // Reverse the reveal by collapsing symmetrically to the centre.
                 bool rotated = !old.Key.EndsWith(":download", StringComparison.Ordinal) && Vertical && !Settings.ForceIndicatorsToItemBase;
@@ -204,7 +213,12 @@ internal sealed partial class DockWindow
             rowMoves.Add(new(old, old.Bounds, end, old.Opacity, 0) { ClosingIndicator = indicator });
         }
         foreach (var next in after.Sprites)
-            rowMoves.Add(from.TryGetValue(next.Key, out var old) ? new(next, old.Bounds, next.Bounds, old.Opacity, next.Opacity) : new(next, Small(next.Bounds), next.Bounds, 0, next.Opacity));
+        {
+            var start = next.Key.EndsWith(":badge", StringComparison.Ordinal) ? next.Bounds : Small(next.Bounds);
+            rowMoves.Add(from.TryGetValue(next.Key, out var old)
+                ? new(next, old.Bounds, next.Bounds, old.Opacity, next.Opacity)
+                : new(next, start, next.Bounds, 0, next.Opacity));
+        }
         // Keep the old and new artwork inside a stable transparent envelope.
         // Native input/material clips define the visible dock size; the host
         // itself need not shrink when handing the animation to the live row.
@@ -251,7 +265,7 @@ internal sealed partial class DockWindow
                 if (move.ClosingIndicator)
                 {
                     double elapsed = Stopwatch.GetElapsedTime(rowStamp).TotalMilliseconds;
-                    double close = move.Sprite.Key.EndsWith(":badge", StringComparison.Ordinal) ? DockMotion.BadgeCloseProgress(elapsed) : DockMotion.IndicatorCloseProgress(elapsed);
+                    double close = DockMotion.IndicatorCloseProgress(elapsed);
                     double Blend(double a, double b) => a + (b - a) * close;
                     value = new(Blend(move.From.X, move.To.X), Blend(move.From.Y, move.To.Y), Blend(move.From.Width, move.To.Width), Blend(move.From.Height, move.To.Height));
                 }
@@ -285,6 +299,7 @@ internal sealed partial class DockWindow
         rowAnimating = false;
         rowPopupTransition = false;
         rowSpanTransition = false;
+        rowRemovingItem = false;
         strip.Opacity = 1; hoverArtwork.Opacity = 1; dockBorder.Opacity = 1;
         if (!keepArtwork) ClearRowArtwork();
     }
@@ -325,7 +340,13 @@ internal sealed partial class DockWindow
             else { visibleBounds = resting; SetHoverClip(); PaintMaterialSurface(0); }
             // Reveal and lay out the live row before retiring its transition
             // cover, so there is no blank compositor frame between the two.
-            root.UpdateLayout(); ClearRowArtwork();
+            root.UpdateLayout();
+            foreach (var separator in strip.Children.OfType<Border>())
+            {
+                var origin = separator.TransformToVisual(root).TransformPoint(new Windows.Foundation.Point());
+                SnapSeparator(separator, origin.X, origin.Y);
+            }
+            ClearRowArtwork();
             rowResumeGrowth = null;
         }
         finally { hoverRebuilding = false; rowFinishing = false; }

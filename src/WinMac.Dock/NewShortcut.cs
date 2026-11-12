@@ -71,7 +71,31 @@ internal sealed partial class DockWindow
         };
         var cancel = new Button { Content = "Cancel" };
         var add = new Button { Content = "OK", IsEnabled = false };
-        command.TextChanged += (_, _) => { add.IsEnabled = !string.IsNullOrWhiteSpace(command.Text); error.Visibility = Visibility.Collapsed; };
+        int previewRevision = 0;
+        command.TextChanged += async (_, _) =>
+        {
+            add.IsEnabled = !string.IsNullOrWhiteSpace(command.Text);
+            error.Visibility = Visibility.Collapsed;
+            if (chosenIcon != null) return;
+            int revision = ++previewRevision;
+            string text = command.Text;
+            iconDetails.Visibility = Visibility.Collapsed;
+            iconPreview.Source = null;
+            if (!add.IsEnabled) return;
+            try
+            {
+                string? path = await Task.Run(() => ShortcutCommand.DetectIcon(text));
+                if (revision != previewRevision || chosenIcon != null || shortcutWindow != window || path == null) return;
+                iconFilename.Text = Path.GetFileName(path);
+                ToolTipService.SetToolTip(iconFilename, path);
+                ToolTipService.SetToolTip(iconPreview, path);
+                iconDetails.Visibility = Visibility.Visible;
+                var preview = await IconService.Load(path, imageFile: true, requestedPixels: (int)Math.Ceiling(16 * dpi));
+                if (revision == previewRevision && chosenIcon == null && shortcutWindow == window) iconPreview.Source = preview;
+            }
+            catch (ArgumentException) { /* The command may still be incomplete. */ }
+            catch (Exception ex) { Log.Write(ex); }
+        };
         cancel.Click += (_, _) => window.Close();
         add.Click += (_, _) =>
         {
@@ -79,7 +103,7 @@ internal sealed partial class DockWindow
             {
                 var shortcut = ShortcutCommand.Create(command.Text, name.Text, keepShellOpen.IsChecked == true);
                 if (chosenIcon != null) shortcut.CustomIcon = chosenIcon;
-                AddItem(shortcut, insertion); window.Close();
+                AddItem(shortcut, insertion, useNewIcon: true); window.Close();
             }
             catch (Exception ex) { error.Text = ex.Message; error.Visibility = Visibility.Visible; }
         };
@@ -139,34 +163,7 @@ internal sealed partial class DockWindow
 
 internal static class ShortcutCommand
 {
-    [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
-    private static extern uint SearchPathW(string? path, string file, string? extension, int length, System.Text.StringBuilder buffer, nint filePart);
-
-    private static string IconTarget(string target)
-    {
-        if (File.Exists(target)) return Path.GetFullPath(target);
-        if (target.IndexOfAny(['\\', '/', ':']) >= 0) return target;
-        string extension = Path.GetExtension(target);
-        if (extension.Length != 0 && !extension.Equals(".exe", StringComparison.OrdinalIgnoreCase) && !extension.Equals(".lnk", StringComparison.OrdinalIgnoreCase)) return target;
-        var buffer = new System.Text.StringBuilder(32768);
-        uint length = SearchPathW(null, target, extension.Length == 0 ? ".exe" : null, buffer.Capacity, buffer, 0);
-        if (length > 0 && length < buffer.Capacity && File.Exists(buffer.ToString())) return buffer.ToString();
-        // ShellExecute also recognizes application registrations outside PATH.
-        string app = extension.Length == 0 ? target + ".exe" : target;
-        foreach (var hive in new[] { Microsoft.Win32.Registry.CurrentUser, Microsoft.Win32.Registry.LocalMachine })
-        {
-            using var key = hive.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\App Paths\" + app);
-            string? registered = (key?.GetValue(null) as string)?.Trim('"');
-            if (!string.IsNullOrWhiteSpace(registered))
-            {
-                registered = Environment.ExpandEnvironmentVariables(registered);
-                if (File.Exists(registered)) return registered;
-            }
-        }
-        return target;
-    }
-    internal static string DefaultIcon => Path.Combine(Environment.SystemDirectory, "shell32.dll") + ",-16769";
-    internal static DockItem Create(string command, string name, bool keepShellOpen = false)
+    private static (string Target, string Arguments) Parse(string command)
     {
         string value = Environment.ExpandEnvironmentVariables(command.Trim());
         if (value.Length == 0) throw new ArgumentException("Enter a command or location.");
@@ -183,10 +180,25 @@ internal static class ShortcutCommand
             if (end >= 0) { target = value[..end]; arguments = value[(end + 1)..].TrimStart(); }
         }
         if (string.IsNullOrWhiteSpace(target)) throw new ArgumentException("Enter a command or location.");
+        return (target, arguments);
+    }
+
+    internal static string? DetectIcon(string command) => ResolveIcon(Parse(command).Target);
+
+    private static string? ResolveIcon(string target)
+    {
+        string path = ShortcutIconTarget.Resolve(target);
+        return File.Exists(path) && Path.GetExtension(path).ToLowerInvariant() is ".exe" or ".lnk" ? path : null;
+    }
+
+    internal static DockItem Create(string command, string name, bool keepShellOpen = false)
+    {
+        var (target, arguments) = Parse(command);
         var item = ShellService.FromPath(target);
-        string iconTarget = IconTarget(target);
-        item.CustomIcon = File.Exists(iconTarget) && Path.GetExtension(iconTarget).ToLowerInvariant() is ".exe" or ".lnk" ? iconTarget : DefaultIcon;
-        if (string.IsNullOrWhiteSpace(item.ExecutablePath) && File.Exists(iconTarget) && Path.GetExtension(iconTarget).Equals(".exe", StringComparison.OrdinalIgnoreCase)) item.ExecutablePath = iconTarget;
+        string? iconTarget = ResolveIcon(target);
+        item.CustomIcon = iconTarget ?? ShortcutIconTarget.DefaultIcon;
+        if (iconTarget != null && Path.GetExtension(iconTarget).Equals(".exe", StringComparison.OrdinalIgnoreCase))
+            item.ExecutablePath = iconTarget;
         // Command aliases and URI handlers use the same Shell launch path as existing pins.
         if (!File.Exists(target) && !Directory.Exists(target)) item.Kind = ItemKind.Application;
         if (arguments.Length > 0) item.Arguments = arguments;

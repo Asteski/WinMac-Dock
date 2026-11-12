@@ -104,7 +104,7 @@ internal sealed partial class DockWindow
     {
         if (Settings.Exclusions.Matches(task)) return null;
         var prospective = ReadDockWindows().Where(w => w.Handle != task.Handle).Append(task with { Minimized = true }).ToArray();
-        var entries = TaskReconciler.Reconcile(Settings.Items, prospective, Settings.GroupWindows, Settings.CombinePinnedIconsWithRunningApplications, true);
+        var entries = TaskReconciler.Reconcile(Settings.Items, prospective, Settings.GroupWindows, Settings.CombinePinnedIconsWithRunningApplications, MinimizedOnly);
         var flags = entries.Select(e => e.Item.Kind != ItemKind.Separator).ToList();
         int index = entries.FindIndex(e => e.Windows.Any(w => w.Handle == task.Handle));
         if (index < 0) return null;

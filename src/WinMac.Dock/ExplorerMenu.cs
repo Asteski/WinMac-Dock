@@ -126,11 +126,17 @@ internal sealed partial class DockWindow
     }
     private bool refreshingExplorerFolders;
     private long explorerFoldersStamp;
+    private nint ExplorerLocationIconWindow(DockEntry entry)
+    {
+        if (entry.IsPinned || entry.Window == null || !IsFileExplorer(entry.Item)) return 0;
+        if (!UsesWindowThumbnail(entry)) return entry.Window.Handle;
+        return Settings.UseExplorerLocationThumbnailBadge ? ThumbnailWindowFor(entry).Handle : 0;
+    }
+
     private async Task RefreshExplorerFolderIcons()
     {
         if (closing || refreshingExplorerFolders || System.Diagnostics.Stopwatch.GetElapsedTime(explorerFoldersStamp).TotalMilliseconds < 500) return;
-        var handles = buttons.Where(b => !b.Entry.IsPinned && IsFileExplorer(b.Entry.Item) && b.Entry.Window != null)
-            .Select(b => b.Entry.Window!.Handle).ToHashSet();
+        var handles = buttons.Select(b => ExplorerLocationIconWindow(b.Entry)).Where(handle => handle != 0).ToHashSet();
         foreach (var handle in explorerFolderTargets.Keys.Where(h => !handles.Contains(h)).ToArray()) explorerFolderTargets.Remove(handle);
         if (handles.Count == 0) return;
         refreshingExplorerFolders = true; explorerFoldersStamp = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -142,8 +148,9 @@ internal sealed partial class DockWindow
             {
                 if (explorerFolderTargets.TryGetValue(handle, out var previous) && previous.Equals(target, StringComparison.OrdinalIgnoreCase)) continue;
                 explorerFolderTargets[handle] = target;
-                foreach (var button in buttons.Where(b => !b.Entry.IsPinned && b.Entry.Window?.Handle == handle).ToArray())
-                    if (button.Icon is Grid host && host.Children.OfType<Microsoft.UI.Xaml.Controls.Image>().FirstOrDefault() is { } image
+                foreach (var button in buttons.Where(b => ExplorerLocationIconWindow(b.Entry) == handle).ToArray())
+                    // The thumbnail is a Border with an ImageBrush. Update only the app badge.
+                    if (button.Icon is Grid host && host.Children.OfType<Microsoft.UI.Xaml.Controls.Image>().LastOrDefault() is { } image
                         && host.Children.OfType<FontIcon>().FirstOrDefault() is { } fallback)
                         await LoadIcon(button.Entry.Item, image, fallback, host, false, handle);
             }
