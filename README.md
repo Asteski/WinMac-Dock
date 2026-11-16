@@ -11,10 +11,10 @@
 <p align="center">
   <span align="center">A standalone Windows 11 dock built with .NET 10, WinUI3, Windows Composition and the Windows shell. It offers native Windows Acrylic and Mica, solid/transparent backgrounds, system light/dark colors, multi-monitor setup, native WinUI menus, and macOS-style icon magnification.</span>
 </p>
-
+https://github.com/Asteski/WinMac-Dock/releases/download/v1.0.0-RC/WinMac-Dock-1.0.0-RC-arm64.zip
 <p align="center">
-  <a href="https://github.com/Asteski/WinMac-Dock/releases/download/v1.0.0-RC/WinMac-Dock-1.0.0-RC-beta-x64.zip"><img alt="Download x64" src="https://img.shields.io/badge/Download-x64-0078D6?style=for-the-badge"></a>
-  <a href="https://github.com/Asteski/WinMac-Dock/releases/download/v1.0.0-RC/WinMac-Dock-1.0.0-RC-beta-arm64.zip"><img alt="Download ARM64" src="https://img.shields.io/badge/Download-ARM64-00A86B?style=for-the-badge"></a>
+  <a href="https://github.com/Asteski/WinMac-Dock/releases/download/v1.0.0-RC/WinMac-Dock-1.0.0-RC-x64.zip"><img alt="Download x64" src="https://img.shields.io/badge/Download-x64-0078D6?style=for-the-badge"></a>
+  <a href="https://github.com/Asteski/WinMac-Dock/releases/download/v1.0.0-RC/WinMac-Dock-1.0.0-RC-arm64.zip"><img alt="Download ARM64" src="https://img.shields.io/badge/Download-ARM64-00A86B?style=for-the-badge"></a>
 </p>w
 <p align="center">
   <img alt="Latest Release" src="https://img.shields.io/github/v/release/Asteski/WinMac-Dock">
