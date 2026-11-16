@@ -5,12 +5,13 @@ namespace WinMac.Dock;
 
 internal sealed partial class DockWindow
 {
-    private void AddDockSettingsMenu(MenuFlyout menu)
+    private void AddDockSettingsMenu(MenuFlyout menu, bool fromTray = false)
     {
         var icon = new ImageIcon();
-        var item = new MenuFlyoutItem { Text = "Dock settings", Icon = icon };
+        var item = new MenuFlyoutItem { Text = "Dock settings", Icon = fromTray ? icon : Glyph("\uE713") };
         item.Click += (_, _) => ShowSettings();
         menu.Items.Add(item);
+        if (!fromTray) return;
         int request = 0;
         async void UpdateIcon()
         {

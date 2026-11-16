@@ -48,13 +48,14 @@ internal sealed class FolderPane : UserControl, IDisposable
     private readonly double gridWidth;
     private ListViewBase? list;
     private readonly HashSet<GridViewItem> highlightedContainers = [];
+    private readonly HashSet<SelectorItem> contextContainers = [];
 
     public FolderPane(DockItem item, DockWindow owner, Action dismiss)
     {
         this.item = item; this.owner = owner; this.dismiss = dismiss; path = item.Target;
         bool gridView = item.Folder.View == FolderView.Grid;
         double rasterScale = Native.GetDpiForWindow(owner.Handle) / 96d;
-        iconSize = owner.Settings.FolderFlyoutIconSize;
+        iconSize = owner.Settings.CustomFolderFlyoutIconSize ? owner.Settings.FolderFlyoutIconSize : owner.Settings.IconSize;
         gridCellHeight = iconSize + 52;
         gridCellWidth = Math.Max(94, iconSize + 12);
         gridColumns = Math.Clamp((int)Math.Floor((owner.AvailablePopupWidth - 34 - 1 / rasterScale) / gridCellWidth), 1, Math.Clamp(item.Folder.GridColumns, 1, 7));
@@ -227,6 +228,8 @@ internal sealed class FolderPane : UserControl, IDisposable
         status.Visibility = entries.Count == 0 || listingError != null ? Visibility.Visible : Visibility.Collapsed;
         bool grid = item.Folder.View == FolderView.Grid;
         highlightedContainers.Clear();
+        foreach (var rowContainer in contextContainers) rowContainer.ContextRequested -= ShowRowContextMenu;
+        contextContainers.Clear();
         list = grid ? new GridView() : new ListView();
         // Reveal the prepared popup as one surface, without a second entrance
         // animation on its rows after the header has already appeared.
@@ -275,11 +278,20 @@ internal sealed class FolderPane : UserControl, IDisposable
                 Microsoft.UI.Xaml.Automation.AutomationProperties.SetAccessibilityView(e.ItemContainer, realItem
                     ? Microsoft.UI.Xaml.Automation.Peers.AccessibilityView.Content : Microsoft.UI.Xaml.Automation.Peers.AccessibilityView.Raw);
             }
-            if (!e.InRecycleQueue && e.Item is FolderEntry row && e.ItemContainer.ContentTemplateRoot is StackPanel panel)
+            if (disposed || e.InRecycleQueue)
+            {
+                if (e.ItemContainer.ContentTemplateRoot is StackPanel recycled && recycled.Children[0] is Image image)
+                {
+                    image.Tag = null;
+                    image.Source = null;
+                }
+                return;
+            }
+            if (e.Item is FolderEntry row && e.ItemContainer.ContentTemplateRoot is StackPanel panel)
             {
                 if (e.ItemContainer is GridViewItem cell && highlightedContainers.Add(cell)) ConfigureHighlight(cell);
                 if (panel.Children[0] is Microsoft.UI.Xaml.Controls.Image image) { image.Tag = row.Path; _ = SetImage(image, row); }
-                e.ItemContainer.ContextFlyout = MakeMenu(row);
+                if (contextContainers.Add(e.ItemContainer)) e.ItemContainer.ContextRequested += ShowRowContextMenu;
                 ShellTooltips.Attach(e.ItemContainer, row.Path);
             }
         };
@@ -324,6 +336,7 @@ internal sealed class FolderPane : UserControl, IDisposable
     }
     private void UpdateMaterialGrain()
     {
+        if (disposed) return;
         bool show = owner.DefaultMaterialGrainEnabled;
         materialGrain.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
         if (!show || ActualWidth <= 0 || ActualHeight <= 0 || XamlRoot == null) return;
@@ -333,7 +346,7 @@ internal sealed class FolderPane : UserControl, IDisposable
         materialGrain.Width = ActualWidth;
         materialGrain.Height = ActualHeight;
         if (grainSize == (width, height)) return;
-        materialGrain.Source = DockWindow.CreateMaterialGrain(width, height);
+        materialGrain.Source = owner.GetFolderMaterialGrain(width, height);
         grainSize = (width, height);
     }
     private void ApplyGridColors()
@@ -390,6 +403,15 @@ internal sealed class FolderPane : UserControl, IDisposable
         menu.Items.Add(downloads);
         var pin = new MenuFlyoutItem { Text = "Pin to dock", Icon = DockWindow.Glyph("\uE718") }; pin.Click += (_, _) => owner.PinFromFolder(ShellService.FromPath(row.Path)); menu.Items.Add(pin); return menu;
     }
+    private void ShowRowContextMenu(UIElement sender, Microsoft.UI.Xaml.Input.ContextRequestedEventArgs args)
+    {
+        if (disposed || sender is not SelectorItem { Content: FolderEntry row } container) return;
+        args.Handled = true;
+        var menu = MakeMenu(row);
+        if (args.TryGetPosition(container, out var position))
+            menu.ShowAt(container, new Microsoft.UI.Xaml.Controls.Primitives.FlyoutShowOptions { Position = position });
+        else menu.ShowAt(container);
+    }
     private async Task SetImage(Microsoft.UI.Xaml.Controls.Image image, FolderEntry row)
     {
         image.Tag = row.Path;
@@ -417,5 +439,23 @@ internal sealed class FolderPane : UserControl, IDisposable
         gridScrollbar.Opacity = 1; gridScrollbar.IsHitTestVisible = true;
         scrollbarIdle.Stop(); scrollbarIdle.Start();
     }
-    public void Dispose() { disposed = true; cancellation?.Cancel(); cancellation?.Dispose(); watcher?.Dispose(); refresh.Stop(); scrollbarIdle.Stop(); }
+    public void Dispose()
+    {
+        if (disposed) return;
+        disposed = true;
+        cancellation?.Cancel();
+        cancellation?.Dispose();
+        watcher?.Dispose();
+        refresh.Stop();
+        scrollbarIdle.Stop();
+        if (list != null) list.Items.Clear();
+        list = null;
+        highlightedContainers.Clear();
+        foreach (var container in contextContainers) container.ContextRequested -= ShowRowContextMenu;
+        contextContainers.Clear();
+        entries.Clear();
+        materialGrain.Source = null;
+        body.Content = null;
+        gridScrollbar = null;
+    }
 }

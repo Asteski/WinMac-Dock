@@ -44,7 +44,7 @@ internal sealed class TaskTracker : IDisposable
         hooks.Add(Native.SetWinEventHook(3, 3, 0, callback, 0, 0, 2));
         hooks.Add(Native.SetWinEventHook(0x8000, 0x8003, 0, callback, 0, 0, 2));
         hooks.Add(Native.SetWinEventHook(0x800B, 0x800C, 0, callback, 0, 0, 2));
-        hooks.Add(Native.SetWinEventHook(0x16, 0x17, 0, callback, 0, 0, 2));
+        hooks.Add(Native.SetWinEventHook(0x16, 0x17, 0, callback, 0, 0, 0));
         // DWM cloaking changes when switching virtual desktops.
         hooks.Add(Native.SetWinEventHook(0x8017, 0x8018, 0, callback, 0, 0, 2));
     }

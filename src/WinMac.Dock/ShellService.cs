@@ -200,21 +200,50 @@ internal static partial class ShellService
         }
         finally { Volatile.Write(ref emptyingRecycleBin, 0); }
     }
-    public static void PlayRecycleSound(bool empty, int volumePercent)
+    public static void PlayRecycleSound(bool empty, int volumePercent, string customPath)
     {
-        var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Media", empty ? "recycle.wav" : "Windows Recycle.wav");
-        _ = Task.Run(() =>
-        {
-            try
-            {
-                if (!File.Exists(path)) return;
-                using var stream = new MemoryStream(WaveGain.Apply(File.ReadAllBytes(path), volumePercent));
-                using var player = new System.Media.SoundPlayer(stream);
-                player.PlaySync();
-            }
-            catch (Exception ex) { Log.Write(ex); }
-        });
+        _ = PlayRecycleSoundAsync(empty, volumePercent, customPath);
     }
+
+    internal static Task<bool> PlayRecycleSoundAsync(bool empty, int volumePercent, string customPath) => Task.Run(async () =>
+    {
+        try
+        {
+            var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Media", empty ? "recycle.wav" : "Windows Recycle.wav");
+            string selected = Environment.ExpandEnvironmentVariables(customPath ?? "");
+            if (!File.Exists(selected)) selected = path;
+            if (!File.Exists(selected)) return false;
+            if (string.Equals(Path.GetExtension(selected), ".mp3", StringComparison.OrdinalIgnoreCase))
+                return await PlayMp3Async(selected, volumePercent);
+            using var stream = new MemoryStream(WaveGain.Apply(File.ReadAllBytes(selected), volumePercent));
+            using var player = new System.Media.SoundPlayer(stream);
+            player.PlaySync();
+            return true;
+        }
+        catch (Exception ex) { Log.Write(ex); return false; }
+    });
+    private static async Task<bool> PlayMp3Async(string path, int volumePercent)
+    {
+        using var player = new Windows.Media.Playback.MediaPlayer();
+        using var source = Windows.Media.Core.MediaSource.CreateFromUri(new Uri(Path.GetFullPath(path)));
+        var opened = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var ended = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        player.MediaOpened += (_, _) => opened.TrySetResult(true);
+        player.MediaEnded += (_, _) => ended.TrySetResult(true);
+        player.MediaFailed += (_, _) =>
+        {
+            opened.TrySetResult(false);
+            ended.TrySetResult(false);
+        };
+        player.Source = source;
+        if (!await opened.Task.WaitAsync(TimeSpan.FromSeconds(10))) return false;
+
+        player.Volume = Math.Clamp(volumePercent, 0, 100) / 100.0;
+        var playbackTimeout = player.PlaybackSession.NaturalDuration + TimeSpan.FromSeconds(10);
+        player.Play();
+        return await ended.Task.WaitAsync(playbackTimeout);
+    }
+
     public static bool Recycle(nint owner, IEnumerable<string> paths)
     {
         var op = new Native.SHFILEOPSTRUCT { Window = owner, Func = 3, From = string.Join('\0', paths) + "\0\0", Flags = 0x40 };

@@ -112,6 +112,20 @@ internal sealed partial class DockWindow
             if (width <= 0 || height <= 0) throw new InvalidOperationException("Dragged artwork has no size.");
             int pixelWidth = Math.Max(1, (int)Math.Ceiling(width * scale));
             int pixelHeight = Math.Max(1, (int)Math.Ceiling(height * scale));
+            if (draggedElement?.Tag is DockEntry { Item.Kind: ItemKind.Spacer })
+            {
+                var path = IconResources.PathFor(BundledIcons.Application);
+                var icon = await IconService.Load(path, imageFile: true, requestedPixels: IconPixels);
+                if (icon == null) return;
+                await IconService.PrepareDragPixels(icon, pixelWidth, pixelHeight);
+                if (closing || generation != dragPreviewGeneration || internalDragId == null) return;
+                if (IconService.DragPixels(icon, pixelWidth, pixelHeight) is { } spacerPixels)
+                {
+                    dragPreview = new LayeredDragIcon(spacerPixels, pixelWidth, pixelHeight);
+                    UpdateOutsideItemDrag();
+                }
+                return;
+            }
             foreach (var image in DragImages(source).ToArray())
                 if (image.Source != null) await IconService.PrepareDragPixels(image.Source, pixelWidth, pixelHeight);
             if (closing || generation != dragPreviewGeneration || internalDragId == null) return;

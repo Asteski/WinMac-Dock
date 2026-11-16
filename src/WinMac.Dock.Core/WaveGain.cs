@@ -24,7 +24,7 @@ public static class WaveGain
             if (result.AsSpan(offset, 4).SequenceEqual("data"u8))
             {
                 if (!pcm16) throw new InvalidDataException("Recycle Bin sound must use 16-bit PCM WAV audio.");
-                double gain = Math.Clamp(percent, 0, 600) / 100d;
+                double gain = Math.Clamp(percent, 0, DockItem.MaxRecycleSoundVolumePercent) / 100d;
                 for (int i = start; i + 1 < start + size; i += 2)
                 {
                     var sample = BinaryPrimitives.ReadInt16LittleEndian(result.AsSpan(i, 2));

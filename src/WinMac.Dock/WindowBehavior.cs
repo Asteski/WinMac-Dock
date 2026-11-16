@@ -7,11 +7,12 @@ namespace WinMac.Dock;
 internal sealed partial class DockWindow
 {
     private bool taskViewOpen;
-    private static bool IsElevated
+    private readonly List<nint> taskbarsToRaise = [];
+    internal static bool IsElevated
     {
         get { using var identity = WindowsIdentity.GetCurrent(); return new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator); }
     }
-    private void RestartDock(bool elevate)
+    internal void RestartDock(bool elevate)
     {
         if (MonitorOverride != null) { App.Dock?.RestartDock(elevate); return; }
         try
@@ -39,6 +40,7 @@ internal sealed partial class DockWindow
         var fit = DockAutoFit.Calculate(Settings.IconSize, Settings.WindowsTaskbarHighlights ? 20 : 12, flags, Settings.IconSpacing, available,
             Motion && DisplayMagnificationEnabled ? Settings.HoverMagnificationPercent : 0, Settings.MagnificationSpan, 1 / display.Scale);
         fit = DockAutoFit.PixelAligned(fit, display.Scale);
+        if (fit.Overflow) (App.Dock ?? this).settingsWindow?.QueueDockOverflowNotice();
         double spacing = DockAutoFit.PixelSpacing(DockAutoFit.Spacing(Settings.IconSpacing, fit.IconSize, Settings.IconSize), display.Scale);
         if (fit.IconSize == DisplayIconSize && fit.Padding == DisplayPadding && fit.Overflow == dockOverflow
             && spacing == DisplaySpacing && displayRequestedSize == Settings.IconSize) return false;
@@ -105,17 +107,25 @@ internal sealed partial class DockWindow
         }
         KeepTaskbarsAboveDock();
     }
-    private static bool IsWindowsTaskbar(nint window) => Native.Class(window) is "Shell_TrayWnd" or "Shell_SecondaryTrayWnd";
+    private static unsafe bool IsWindowsTaskbar(nint window)
+    {
+        Span<char> className = stackalloc char[256];
+        fixed (char* buffer = className)
+        {
+            int length = Native.GetClassName(window, buffer, className.Length);
+            return className[..length] is "Shell_TrayWnd" or "Shell_SecondaryTrayWnd";
+        }
+    }
     private void KeepTaskbarsAboveDock()
     {
         if (!initialized || closing || hidden || taskViewOpen || HasExternalFullscreenForeground()) return;
         // Keep both dock surfaces topmost. Lowering them behind an arbitrary
         // taskbar can also put them behind application windows in that chain.
         // Instead, raise only visible taskbars that are currently below us.
-        var bars = new List<nint>();
+        taskbarsToRaise.Clear();
         for (var below = Native.GetWindow(Handle, 2); below != 0; below = Native.GetWindow(below, 2))
             if (IsWindowsTaskbar(below) && Native.IsWindowVisible(below)
-                && (Native.DwmGetInt(below, 14, out int cloaked, 4) != 0 || cloaked == 0)) bars.Add(below);
-        foreach (var bar in bars) Native.SetWindowPos(bar, -1, 0, 0, 0, 0, 0x13);
+                && (Native.DwmGetInt(below, 14, out int cloaked, 4) != 0 || cloaked == 0)) taskbarsToRaise.Add(below);
+        foreach (var bar in taskbarsToRaise) Native.SetWindowPos(bar, -1, 0, 0, 0, 0, 0x13);
     }
 }

@@ -8,10 +8,14 @@ internal sealed partial class DockWindow
 {
     private Window? materialWindow;
     private Grid? materialRoot;
+    private readonly Border materialOutline = new() { IsHitTestVisible = false };
     private DockBackdrop? materialBackdrop;
     private nint materialHandle;
     private Native.SubclassProc? materialSubclass;
     private PixelRect materialHostBounds;
+    private PixelRect materialViewport;
+    private PixelRect? materialClip;
+    private int materialClipRadius;
     private bool materialVisible;
     private uint orderedSurfaceBand;
     private readonly Canvas hoverArtwork = new() { IsHitTestVisible = false };
@@ -43,6 +47,8 @@ internal sealed partial class DockWindow
     {
         if (materialWindow != null) return;
         materialRoot = new Grid { Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
+        Canvas.SetZIndex(materialOutline, 1);
+        materialRoot.Children.Add(materialOutline);
         materialWindow = new Window { Title = "WinMac Dock material surface", Content = materialRoot };
         materialHandle = WinRT.Interop.WindowNative.GetWindowHandle(materialWindow);
         Native.RegisterPassiveWindow(materialHandle);
@@ -53,9 +59,8 @@ internal sealed partial class DockWindow
         var style = Native.GetWindowLongPtrW(materialHandle, -20).ToInt64();
         Native.SetWindowLongPtrW(materialHandle, -20, (nint)((style & ~(0x100L | 0x200L | 0x20000L)) | 0x8 | 0x80 | 0x20 | 0x08000000)); // Topmost tool, click-through, no activation.
         var nativeStyle = Native.GetWindowLongPtrW(materialHandle, -16).ToInt64();
-        // Keep the composited DWM frame while NCCALCSIZE makes the entire
-        // panel client area. Leave it unregioned so DWM supplies its shadow.
-        Native.SetWindowLongPtrW(materialHandle, -16, (nint)((nativeStyle & ~(0x00800000L | 0x00400000L)) | 0x80000000L | 0x00040000L));
+        // The panel owns the visible outline. Suppress the native frame.
+        Native.SetWindowLongPtrW(materialHandle, -16, (nint)((nativeStyle & ~(0x00800000L | 0x00400000L | 0x00040000L)) | 0x80000000L));
         Native.SetWindowPos(materialHandle, 0, 0, 0, 0, 0, 0x20 | 0x1 | 0x2 | 0x4 | 0x10); // Recalculate client area after removing the frame.
         materialSubclass = (hwnd, msg, wp, lp, id, data) =>
         {
@@ -69,6 +74,7 @@ internal sealed partial class DockWindow
         materialWindow.Closed += (_, _) => { Native.RemoveWindowSubclass(materialHandle, materialSubclass, 1); Native.UnregisterPassiveWindow(materialHandle); };
         Native.SetWindowPos(materialHandle, 0, 0, 0, 0, 0, 0x20 | 0x1 | 0x2 | 0x4 | 0x10);
         var borderColor = unchecked((int)0xFFFFFFFE); Native.DwmSetWindowAttribute(materialHandle, 34, ref borderColor, 4);
+        Native.ConfigureCompositedClient(materialHandle);
         materialBackdrop = new DockBackdrop(materialWindow);
     }
 
@@ -98,8 +104,9 @@ internal sealed partial class DockWindow
         // Draw the outline at the exact material bounds. Scaling the resting
         // border stretches its stroke/corners and drifts from pixel-rounded clips.
         dockBorder.RenderTransform = null;
-        dockBorder.BorderThickness = DockOutlineThickness;
-        if (rowAnimating) rowOutline.BorderThickness = DockOutlineThickness;
+        materialOutline.BorderThickness = DockOutlineThickness;
+        materialOutline.BorderBrush = dockBorder.BorderBrush;
+        materialOutline.CornerRadius = dockBorder.CornerRadius;
         dockBorder.HorizontalAlignment = HorizontalAlignment.Left;
         dockBorder.VerticalAlignment = VerticalAlignment.Top;
         dockBorder.Margin = new Thickness((panel.Left - hostBounds.Left) / scale, (panel.Top - hostBounds.Top) / scale, 0, 0);
@@ -113,12 +120,26 @@ internal sealed partial class DockWindow
         var surface = panel;
         if (visibilitySliding)
         {
-            var slide = DockGeometry.Slide(resting, PositionEdge, visibilityFraction, Settings.FloatingGap, Settings.KeepHiddenEdgeTrigger);
+            var slide = DockGeometry.Slide(resting, PositionEdge, visibilityFraction, Settings.FloatingGap, keepEdgeTrigger: false);
             int dx = slide.Left - resting.Left, dy = slide.Top - resting.Top;
             surface = new(panel.Left + dx, panel.Top + dy, panel.Right + dx, panel.Bottom + dy);
         }
-        int corners = UseRoundedDockCorners ? 2 : 1;
-        Native.DwmSetWindowAttribute(materialHandle, 33, ref corners, 4);
+        var viewport = surface;
+        materialViewport = viewport;
+        materialOutline.HorizontalAlignment = HorizontalAlignment.Left;
+        materialOutline.VerticalAlignment = VerticalAlignment.Top;
+        materialOutline.Margin = new Thickness((viewport.Left - surface.Left) / scale, (viewport.Top - surface.Top) / scale, 0, 0);
+        materialOutline.Width = viewport.Width / scale;
+        materialOutline.Height = viewport.Height / scale;
+        int radius = UseRoundedDockCorners ? DockGeometry.Pixels(8, scale) : 0;
+        var clip = new PixelRect(viewport.Left - surface.Left, viewport.Top - surface.Top,
+            viewport.Right - surface.Left, viewport.Bottom - surface.Top);
+        if (materialClip != clip || materialClipRadius != radius)
+        {
+            Native.SetDockRegion(materialHandle, clip, radius);
+            materialClip = clip;
+            materialClipRadius = radius;
+        }
         if (materialHostBounds != surface || !materialVisible)
         {
             materialHostBounds = surface;
@@ -127,13 +148,14 @@ internal sealed partial class DockWindow
             // window-size notification after SetWindowPos.
             materialRoot!.Width = surface.Width / scale;
             materialRoot.Height = surface.Height / scale;
-            // Geometry changes do not require reordering the two surfaces or
-            // copying pixels from the old-sized material backing store.
+            // Preserve the overlapping client pixels during resize. Discarding
+            // them can expose a blank strip before the backdrop presents.
             Native.SetWindowPos(materialHandle, Handle, surface.Left, surface.Top, surface.Width, surface.Height,
-                0x10u | 0x100u | 0x400u | (materialVisible ? 0x4u : 0x40u));
-            materialRoot.UpdateLayout();
+                0x10u | 0x400u | (materialVisible ? 0x4u : 0x40u));
+
             materialVisible = true;
         }
+        materialRoot!.UpdateLayout();
     }
     private PixelRect ExpandedMaterialPanel(double expansion)
     {

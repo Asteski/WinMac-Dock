@@ -219,7 +219,7 @@ internal sealed partial class DockWindow
         };
         flyout.Closing += (_, args) =>
         {
-            if (allowClose || !Motion || closing || slide == null) return;
+            if (allowClose || !Settings.AnimateFolderFlyoutClosing || !Motion || closing || slide == null) return;
             args.Cancel = true;
             if (exiting) return;
             exiting = true;

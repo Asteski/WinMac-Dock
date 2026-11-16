@@ -41,7 +41,11 @@ public static class BetaDefaults
         item.RecycleEmptyDarkIcon = template.RecycleEmptyDarkIcon; item.RecycleFullDarkIcon = template.RecycleFullDarkIcon;
         item.RunAsAdministrator = template.RunAsAdministrator; item.ConfirmRecycleBinEmpty = template.ConfirmRecycleBinEmpty;
         item.PlayRecycleBinSounds = template.PlayRecycleBinSounds;
+        item.RecycleDropSoundPath = template.RecycleDropSoundPath;
+        item.RecycleEmptySoundPath = template.RecycleEmptySoundPath;
         item.RecycleBinSoundVolumePercent = template.RecycleBinSoundVolumePercent;
+        item.RecycleDropSoundVolumePercent = template.RecycleDropSoundVolumePercent;
+        item.RecycleEmptySoundVolumePercent = template.RecycleEmptySoundVolumePercent;
         item.ShowThumbnail = template.ShowThumbnail; item.Folder = template.Folder; item.ClickActions = template.ClickActions;
     }
 }

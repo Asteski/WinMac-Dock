@@ -5,7 +5,7 @@ using Microsoft.UI.Xaml.Media;
 namespace WinMac.Dock;
 internal sealed partial class DockWindow
 {
-    internal const string BetaVersion = "Beta v0.9.2";
+    internal const string DisplayVersion = "v1.0.0 RC";
     private Window? aboutWindow;
     internal const string AboutGlyph = "\uE946";
     private nint aboutOwner;
@@ -23,7 +23,7 @@ internal sealed partial class DockWindow
         panel.Children.Add(logo);
         panel.Children.Add(new TextBlock { Text = "WinMac Dock", FontSize = 24, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center });
         var details = new StackPanel { Spacing = 6, HorizontalAlignment = HorizontalAlignment.Center };
-        details.Children.Add(new TextBlock { Text = $"Version: {BetaVersion}", HorizontalAlignment = HorizontalAlignment.Center });
+        details.Children.Add(new TextBlock { Text = $"Version: {DisplayVersion}", HorizontalAlignment = HorizontalAlignment.Center });
         details.Children.Add(new TextBlock { Text = "Created by: Adam Kamienski", HorizontalAlignment = HorizontalAlignment.Center });
         panel.Children.Add(details);
         panel.Children.Add(new TextBlock { Text = "© 2026 Asteski", Opacity = .7, Margin = new Thickness(0, 8, 0, 0), HorizontalAlignment = HorizontalAlignment.Center });

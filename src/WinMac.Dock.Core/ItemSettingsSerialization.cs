@@ -25,7 +25,9 @@ internal static class ItemSettingsSerialization
             nameof(DockItem.RecycleEmptyIcon) or nameof(DockItem.RecycleFullIcon)
                 or nameof(DockItem.RecycleEmptyDarkIcon) or nameof(DockItem.RecycleFullDarkIcon)
                 or nameof(DockItem.ConfirmRecycleBinEmpty) or nameof(DockItem.PlayRecycleBinSounds)
-                or nameof(DockItem.RecycleBinSoundVolumePercent) => recycle,
+                or nameof(DockItem.RecycleBinSoundVolumePercent) or nameof(DockItem.RecycleDropSoundPath)
+                or nameof(DockItem.RecycleEmptySoundPath) or nameof(DockItem.RecycleDropSoundVolumePercent)
+                or nameof(DockItem.RecycleEmptySoundVolumePercent) => recycle,
             nameof(DockItem.Target) or nameof(DockItem.ExecutablePath) => application || file || folder,
             nameof(DockItem.Arguments) or nameof(DockItem.WorkingDirectory) or nameof(DockItem.RunAsAdministrator) => application || file,
             nameof(DockItem.AppUserModelId) => application,
@@ -36,7 +38,7 @@ internal static class ItemSettingsSerialization
             nameof(DockItem.Snipping) => application && (Prefix(item.AppUserModelId, "Microsoft.ScreenSketch_")
                 || Prefix(item.Target, @"shell:AppsFolder\Microsoft.ScreenSketch_") || Prefix(item.Target, "ms-screensketch:") || Executable(item, "SnippingTool.exe")),
             nameof(DockItem.Id) or nameof(DockItem.Kind) or nameof(DockItem.Name) => true,
-            _ => item.Kind != ItemKind.Separator
+            _ => item.Kind is not (ItemKind.Separator or ItemKind.Spacer)
         };
         return relevant && value is not null && (value is not string text || text.Length > 0 || property == nameof(DockItem.Name));
     }

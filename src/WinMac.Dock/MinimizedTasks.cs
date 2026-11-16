@@ -104,12 +104,20 @@ internal sealed partial class DockWindow
     {
         if (Settings.Exclusions.Matches(task)) return null;
         var prospective = ReadDockWindows().Where(w => w.Handle != task.Handle).Append(task with { Minimized = true }).ToArray();
-        var entries = TaskReconciler.Reconcile(Settings.Items, prospective, Settings.GroupWindows, Settings.CombinePinnedIconsWithRunningApplications, MinimizedOnly);
-        var flags = entries.Select(e => e.Item.Kind != ItemKind.Separator).ToList();
-        int index = entries.FindIndex(e => e.Windows.Any(w => w.Handle == task.Handle));
-        if (index < 0) return null;
-        int pins = entries.Count(e => e.IsPinned);
-        if (entries.Count > pins && (pins == 0 || entries[pins - 1].Item.Kind != ItemKind.Separator)) { flags.Insert(pins, false); if (index >= pins) index++; }
+        var entries = DownloadPinLayout.OrderEntries(
+            TaskReconciler.Reconcile(Settings.Items, prospective, Settings.GroupWindows, Settings.CombinePinnedIconsWithRunningApplications, MinimizedOnly),
+            Settings.AutomaticItemOrder);
+        var flags = DownloadPinLayout.IconFlags(entries);
+        int index = 0;
+        DockEntry? previous = null;
+        foreach (var entry in entries)
+        {
+            if (DownloadPinLayout.NeedsSeparator(previous, entry)) index++;
+            if (entry.Windows.Any(window => window.Handle == task.Handle)) break;
+            index++;
+            previous = entry;
+        }
+        if (index >= flags.Count) return null;
         double rowMargins = (Vertical ? Settings.DockMarginTop + Settings.DockMarginBottom : Settings.DockMarginLeft + Settings.DockMarginRight) / scale;
         double crossMargins = (Vertical ? Settings.DockMarginLeft + Settings.DockMarginRight : Settings.DockMarginTop + Settings.DockMarginBottom) / scale;
         double available = (Vertical ? monitor.Work.Height : monitor.Work.Width) / scale - rowMargins;

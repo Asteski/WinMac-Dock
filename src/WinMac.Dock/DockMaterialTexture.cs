@@ -29,6 +29,18 @@ internal sealed partial class DockWindow
         return bitmap;
     }
     private Image? materialGrain;
+    private WriteableBitmap? folderMaterialGrain;
+    private (int Width, int Height) folderMaterialGrainSize;
+
+    internal WriteableBitmap GetFolderMaterialGrain(int width, int height)
+    {
+        if (folderMaterialGrain == null || folderMaterialGrainSize != (width, height))
+        {
+            folderMaterialGrain = CreateMaterialGrain(width, height);
+            folderMaterialGrainSize = (width, height);
+        }
+        return folderMaterialGrain;
+    }
     private (int Width, int Height) materialGrainSize;
     private void UpdateMaterialGrain(PixelRect panel)
     {

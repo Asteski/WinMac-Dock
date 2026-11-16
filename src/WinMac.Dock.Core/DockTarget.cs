@@ -4,7 +4,7 @@ public static class DockTarget
 {
     public static bool IsMissing(DockItem item)
     {
-        if (item.Kind is ItemKind.StartMenu or ItemKind.RecycleBin or ItemKind.Separator or ItemKind.TaskView or ItemKind.Search) return false;
+        if (item.Kind is ItemKind.StartMenu or ItemKind.RecycleBin or ItemKind.Separator or ItemKind.TaskView or ItemKind.Search or ItemKind.Spacer) return false;
         // Packaged applications activate by identity rather than their often
         // inaccessible or versioned WindowsApps executable path.
         if (item.Kind == ItemKind.Application && (item.AppUserModelId.Contains('!') || !string.IsNullOrWhiteSpace(item.AppUserModelId) && string.IsNullOrWhiteSpace(item.Target))) return false;

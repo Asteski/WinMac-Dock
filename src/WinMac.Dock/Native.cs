@@ -97,6 +97,8 @@ internal static class Native
     [DllImport("user32.dll")] public static extern nint GetForegroundWindow();
     [DllImport("user32.dll",CharSet=CharSet.Unicode)] public static extern int GetWindowText(nint hwnd, StringBuilder text, int count);
     [DllImport("user32.dll",CharSet=CharSet.Unicode)] public static extern int GetClassName(nint hwnd, StringBuilder text, int count);
+    [DllImport("user32.dll", EntryPoint = "GetClassNameW", ExactSpelling = true)]
+    internal static extern unsafe int GetClassName(nint hwnd, char* text, int count);
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(nint hwnd, out uint process);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(nint hwnd, out RECT rect);
     [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT point);
@@ -253,6 +255,15 @@ internal static class Native
     private static nint FixedHeightWindowProc(nint hwnd, uint message, nuint wp, nint lp, nuint id, nuint data)
     {
         var result = Native.DefSubclassProc(hwnd, message, wp, lp);
+        if (message == 0x0024 && lp != 0 && data != 0) // WM_GETMINMAXINFO
+        {
+            uint dpi = GetDpiForWindow(hwnd);
+            int minimum = (int)Math.Ceiling((double)data * (dpi == 0 ? 96 : dpi) / 96);
+            nint trackSize = lp + 3 * Marshal.SizeOf<POINT>();
+            var size = Marshal.PtrToStructure<POINT>(trackSize);
+            size.X = Math.Max(size.X, minimum);
+            Marshal.StructureToPtr(size, trackSize, false);
+        }
         if (message == 0x0214 && lp != 0 && GetWindowRect(hwnd, out var current)) // WM_SIZING, including keyboard resizing.
         {
             var proposed = Marshal.PtrToStructure<RECT>(lp);

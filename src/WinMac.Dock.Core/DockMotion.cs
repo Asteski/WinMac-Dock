@@ -8,7 +8,6 @@ public static class DockMotion
     {
         return CubicProgress(elapsedMs / IndicatorCloseMs, 1, 0, .83, .83);
     }
-    public static double BadgeCloseProgress(double elapsedMs) => CubicProgress(elapsedMs / IndicatorCloseMs, 0, 0, 0, 1);
     private static double CubicProgress(double fraction, double x1, double y1, double x2, double y2)
     {
         fraction = Math.Clamp(fraction, 0, 1);

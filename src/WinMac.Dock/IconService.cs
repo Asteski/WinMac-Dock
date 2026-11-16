@@ -10,25 +10,56 @@ namespace WinMac.Dock;
 internal static class IconService
 {
     private static readonly Dictionary<string, (string Stamp, ImageSource Image)> flyoutCache = new(StringComparer.OrdinalIgnoreCase);
+    private static Microsoft.UI.Dispatching.DispatcherQueueTimer? flyoutCacheIdle;
+    private static int flyoutCacheGeneration;
+
+    private static void ResetFlyoutCacheIdle()
+    {
+        if (flyoutCacheIdle == null)
+        {
+            flyoutCacheIdle = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread().CreateTimer();
+            flyoutCacheIdle.Interval = TimeSpan.FromMinutes(2);
+            flyoutCacheIdle.IsRepeating = false;
+            flyoutCacheIdle.Tick += (_, _) =>
+            {
+                flyoutCacheGeneration++;
+                flyoutCache.Clear();
+            };
+        }
+        flyoutCacheIdle.Stop();
+        flyoutCacheIdle.Start();
+    }
+
     public static async Task<ImageSource?> LoadFlyout(string path, bool thumbnail, int requestedPixels)
     {
+        ResetFlyoutCacheIdle();
+        int generation = flyoutCacheGeneration;
+        int themeRevision = revision;
         string stamp;
         try
         {
             var info = new FileInfo(path);
             stamp = $"{revision}|{info.LastWriteTimeUtc.Ticks}|{(info.Exists ? info.Length : 0)}";
         }
-        catch { return await Load(path, thumbnail, requestedPixels: requestedPixels); }
+        catch { return await DecodeFlyout(); }
         string key = $"{path}|{thumbnail}|{requestedPixels}";
         if (flyoutCache.TryGetValue(key, out var cached) && cached.Stamp == stamp) return cached.Image;
-        if (flyoutCache.ContainsKey(key)) Invalidate(path);
-        var image = await Load(path, thumbnail, requestedPixels: requestedPixels);
-        if (image != null)
+        var image = await DecodeFlyout();
+        if (image != null && generation == flyoutCacheGeneration && themeRevision == revision)
         {
             if (flyoutCache.Count >= 2048) flyoutCache.Remove(flyoutCache.Keys.First());
             flyoutCache[key] = (stamp, image);
         }
         return image;
+
+        Task<ImageSource?> DecodeFlyout()
+        {
+            var resolvedPath = BundledIconPath.Resolve(path, Path.Combine(AppContext.BaseDirectory, "assets"));
+            bool imageFile = Path.GetExtension(resolvedPath).Equals(".ico", StringComparison.OrdinalIgnoreCase)
+                || resolvedPath.Contains(".dll,", StringComparison.OrdinalIgnoreCase)
+                || resolvedPath.Contains(".exe,", StringComparison.OrdinalIgnoreCase);
+            return LoadCore(resolvedPath, thumbnail, imageFile, requestedPixels: requestedPixels, cacheResult: false);
+        }
     }
     private static readonly Dictionary<string, ImageSource> cache = [];
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ImageSource, string> vectorPaths = new();
@@ -212,7 +243,7 @@ internal static class IconService
     }
     private static string RequestKey(string path, int generation, bool dark, string? recycle, bool thumbnail, bool imageFile, bool associatedApp, int pixels)
         => path + "|" + generation + "|" + pathVersions.GetValueOrDefault(path) + "|" + dark + "|" + recycle + "|" + thumbnail + "|" + imageFile + "|" + associatedApp + "|" + pixels;
-    private static async Task<ImageSource?> LoadCore(string path, bool thumbnail = false, bool imageFile = false, bool associatedApp = false, int requestedPixels = 64)
+    private static async Task<ImageSource?> LoadCore(string path, bool thumbnail = false, bool imageFile = false, bool associatedApp = false, int requestedPixels = 64, bool cacheResult = true)
     {
         if (string.IsNullOrEmpty(path)) return null;
         requestedPixels = Math.Clamp(requestedPixels, 16, 512);
@@ -222,7 +253,11 @@ internal static class IconService
         // namespace bitmap (which can still refer to the previous theme).
         var recycleLocation = path.Equals("shell:RecycleBinFolder", StringComparison.OrdinalIgnoreCase) ? RecycleIconLocation() : null;
         var key = RequestKey(path, generation, dark, recycleLocation, thumbnail, imageFile, associatedApp, requestedPixels);
-        if (cache.TryGetValue(key, out var cached)) return cached;
+        if (cacheResult && cache.TryGetValue(key, out var cached)) return cached;
+        void RememberResult(ImageSource image)
+        {
+            if (cacheResult && generation == revision) Remember(key, image);
+        }
         try
         {
             var themedAsset = !thumbnail && !imageFile ? await Task.Run(() => PackageIconAsset(path, requestedPixels, dark)) : null;
@@ -230,7 +265,7 @@ internal static class IconService
             {
                 var file = await StorageFile.GetFileFromPathAsync(themedAsset); using var input = await file.OpenReadAsync();
                 var image = await Decode(input, requestedPixels, false, "Package: " + themedAsset);
-                if (generation == revision) Remember(key, image);
+                RememberResult(image);
                 return image;
             }
             var extension = Path.GetExtension(path).ToLowerInvariant();
@@ -244,7 +279,7 @@ internal static class IconService
                 if (await vector.SetSourceAsync(input) != SvgImageSourceLoadStatus.Success) return null;
                 vectorPaths.Add(vector, path);
                 dimensions.Add(vector, new(requestedPixels, requestedPixels, requestedPixels, "SVG"));
-                Remember(key, vector); return vector;
+                RememberResult(vector); return vector;
             }
             if ((thumbnail || imageFile) && new[] { ".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp", ".ico" }.Contains(Path.GetExtension(path).ToLowerInvariant()))
             {
@@ -252,7 +287,7 @@ internal static class IconService
                 {
                     using var file = await Task.Run(() => new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete));
                     using var source = file.AsRandomAccessStream();
-                    var image = await Decode(source, requestedPixels, extension == ".ico", "Custom image"); Remember(key, image); return image;
+                    var image = await Decode(source, requestedPixels, extension == ".ico", "Custom image"); RememberResult(image); return image;
                 }
                 catch
                 {
@@ -267,7 +302,7 @@ internal static class IconService
                 {
                     var file = await StorageFile.GetFileFromPathAsync(path);
                     using var thumb = await file.GetThumbnailAsync(ThumbnailMode.SingleItem, (uint)requestedPixels, ThumbnailOptions.None);
-                    if (thumb != null) { var image = await Decode(thumb, requestedPixels, false, "Thumbnail"); Remember(key, image); return image; }
+                    if (thumb != null && (cacheResult || thumb.Type == ThumbnailType.Image)) { var image = await Decode(thumb, requestedPixels, false, "Thumbnail"); RememberResult(image); return image; }
                 }
                 catch
                 {
@@ -290,13 +325,13 @@ internal static class IconService
                     var executable = Association(path, 2);
                     if (File.Exists(executable) && ReadShellImage(executable, false, requestedPixels) is { } appIcon) return appIcon;
                 }
-                return ReadShellImage(path, shellThumbnail, requestedPixels);
+                return ReadShellImage(path, shellThumbnail, requestedPixels, unframedFallback: !cacheResult);
             });
             if (bytes == null) return null;
             using var stream = new InMemoryRandomAccessStream();
             using (var writer = new DataWriter(stream.GetOutputStreamAt(0))) { writer.WriteBytes(bytes); await writer.StoreAsync(); await writer.FlushAsync(); }
             stream.Seek(0); var result = await Decode(stream, requestedPixels, false, recycleLocation == null ? "Shell" : "Registered Recycle Bin: " + recycleLocation);
-            if (generation == revision) Remember(key, result); return result;
+            RememberResult(result); return result;
         }
         catch { return null; }
     }
@@ -496,7 +531,7 @@ internal static class IconService
         }
         finally { if (large != 0) Native.DestroyIcon(large); if (small != 0) Native.DestroyIcon(small); }
     }
-    private static byte[]? ReadShellImage(string path, bool thumbnail, int pixels)
+    private static byte[]? ReadShellImage(string path, bool thumbnail, int pixels, bool unframedFallback = false)
     {
         // Task Manager's Shell image factory result can be a transparent
         // placeholder on current Windows builds even though the executable
@@ -513,7 +548,8 @@ internal static class IconService
                 // Let WinUI/WIC downsample native artwork. Shell's SCALEUP path
                 // stretches small frames with GDI and permanently loses detail.
                 var nativePixels = IconRaster.ShellPixels(pixels, thumbnail);
-                if (factory.GetImage(new SIZE { Width = nativePixels, Height = nativePixels }, thumbnail ? 1u : IconRaster.NativeIconFlags, out var bitmap) == 0)
+                uint flags = thumbnail ? (unframedFallback ? 9u : 1u) : IconRaster.NativeIconFlags;
+                if (factory.GetImage(new SIZE { Width = nativePixels, Height = nativePixels }, flags, out var bitmap) == 0)
                 {
                     try { return PreserveAlpha(bitmap); }
                     finally { DeleteObject(bitmap); }
@@ -521,7 +557,7 @@ internal static class IconService
             }
             finally { Marshal.ReleaseComObject(factory); }
         }
-        return ReadFileIcon(path);
+        return thumbnail && unframedFallback ? ReadShellImage(path, false, pixels) : ReadFileIcon(path);
     }
     private static byte[]? ReadFileIcon(string path, bool fileType = false)
     {
@@ -558,6 +594,8 @@ internal static class IconService
         if (item.Kind == ItemKind.TaskView) return IconResources.PathFor(darkTheme ? BundledIcons.TaskViewDark : BundledIcons.TaskViewLight);
         if (item.Kind == ItemKind.Search) return IconResources.PathFor(BundledIcons.Search);
         if (item.Kind == ItemKind.StartMenu) return IconResources.PathFor(BundledIcons.Start);
+        if (item.Kind == ItemKind.Folder && DockWindow.IsDownloads(item))
+            return Path.Combine(Environment.SystemDirectory, "imageres.dll") + ",-184";
         // Explorer's window AUMID need not identify an AppsFolder entry. The
         // shell can return a successful generic icon instead of failing, so
         // use the actual Windows executable for this known desktop app.

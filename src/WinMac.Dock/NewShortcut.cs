@@ -39,25 +39,22 @@ internal sealed partial class DockWindow
         {
             try
             {
-                var picker = new Windows.Storage.Pickers.FileOpenPicker();
-                foreach (var extension in new[] { ".ico", ".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp", ".svg", ".dll", ".exe" }) picker.FileTypeFilter.Add(extension);
-                WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(window));
-                var file = await picker.PickSingleFileAsync();
+                var file = DockFileDialog.PickFile(WinRT.Interop.WindowNative.GetWindowHandle(window), iconsOnly: true);
                 if (file == null || shortcutWindow != window) return;
-                string? selected = await ShortcutIconPicker.Choose(file.Path, root.ActualTheme);
+                string? selected = await ShortcutIconPicker.Choose(file, root.ActualTheme);
                 if (selected == null || shortcutWindow != window) return;
                 chosenIcon = selected;
-                iconFilename.Text = file.Name;
-                ToolTipService.SetToolTip(iconFilename, file.Path);
-                ToolTipService.SetToolTip(iconPreview, file.Path);
+                iconFilename.Text = Path.GetFileName(file);
+                ToolTipService.SetToolTip(iconFilename, file);
+                ToolTipService.SetToolTip(iconPreview, file);
                 iconPreview.Source = null;
                 iconDetails.Visibility = Visibility.Visible;
                 ImageSource? preview;
-                if (file.FileType.Equals(".svg", StringComparison.OrdinalIgnoreCase))
+                if (Path.GetExtension(file).Equals(".svg", StringComparison.OrdinalIgnoreCase))
                 {
                     // Keep the SVG's intrinsic viewport and let the Image fit it into the preview.
                     var vector = new Microsoft.UI.Xaml.Media.Imaging.SvgImageSource();
-                    using var stream = await file.OpenReadAsync();
+                    using var stream = await (await Windows.Storage.StorageFile.GetFileFromPathAsync(file)).OpenReadAsync();
                     var status = await vector.SetSourceAsync(stream);
                     preview = status == Microsoft.UI.Xaml.Media.Imaging.SvgImageSourceLoadStatus.Success ? vector : null;
                 }
@@ -119,8 +116,8 @@ internal sealed partial class DockWindow
         var chrome = new WindowChrome(window, panel, root.ActualTheme);
         bool windowClosed = false;
         var handle = WinRT.Interop.WindowNative.GetWindowHandle(window);
-        if (window.AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter) presenter.IsMaximizable = false;
-        Native.SetWindowSubclass(handle, Native.FixedHeightSubclass, 104, 0);
+        if (window.AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter) { presenter.IsMaximizable = false; presenter.IsMinimizable = false; }
+        Native.SetWindowSubclass(handle, Native.FixedHeightSubclass, 104, 280);
         window.Closed += (_, _) =>
         {
             windowClosed = true;

@@ -11,6 +11,7 @@ internal sealed partial class DockWindow
     private readonly Dictionary<(ItemKind Kind, bool Dark), ShellAnimatedIcon> reusableShellIcons = new();
     private bool syncingShellIcons;
     private bool shellAnimationFailed;
+    private bool suppressRevealHover;
 
     private void TryAddShellAnimatedIcon(Button button, Grid artwork, DockEntry entry)
     {
@@ -31,7 +32,10 @@ internal sealed partial class DockWindow
             // Keep the bitmap loaded for row snapshots and a recoverable
             // fallback. Only its paint is suppressed; layout stays identical.
             foreach (var child in artwork.Children) child.Opacity = 0;
-            button.Click += (_, _) => animation.NotifyClick();
+            button.Click += (_, _) =>
+            {
+                if (!hidden && !visibilitySliding) animation.NotifyClick();
+            };
             button.PointerEntered += (_, _) => SyncShellAnimatedIcons();
             button.PointerExited += (_, _) => SyncShellAnimatedIcons();
             button.PointerCaptureLost += (_, _) => SyncShellAnimatedIcons();
@@ -44,7 +48,7 @@ internal sealed partial class DockWindow
 
     private void ShellIconsRendering(object? sender, object args) => SyncShellAnimatedIcons();
 
-    private void SyncShellAnimatedIcons()
+    private void SyncShellAnimatedIcons(bool settleVisibility = false)
     {
         if (syncingShellIcons || shellIcons.Count == 0 || closing || reconciling || positioning) return;
         syncingShellIcons = true;
@@ -54,7 +58,6 @@ internal sealed partial class DockWindow
             Native.GetCursorPos(out var cursor);
             Native.GetWindowRect(Handle, out var window);
             double x = cursor.X - window.Left, y = cursor.Y - window.Top;
-            bool mousePressed = Native.GetAsyncKeyState(1) < 0;
             var poses = new List<(ShellIcon Item, PixelRect Rect, bool Visible)>();
             foreach (var item in shellIcons)
             {
@@ -70,9 +73,13 @@ internal sealed partial class DockWindow
                     var moving = OffsetRowBounce(row.Current, row.Sprite.Key);
                     rect = new((moving.X - window.Left) / scale, (moving.Y - window.Top) / scale, moving.Width / scale, moving.Height / scale);
                 }
+                // The native overlay uses root-relative coordinates, so apply
+                // the root's slide before converting its bounds to pixels.
+                if (visibilitySliding)
+                    rect = new(rect.X + visibilityShift.X, rect.Y + visibilityShift.Y, rect.Width, rect.Height);
                 var pixels = new PixelRect((int)Math.Round(rect.Left * scale), (int)Math.Round(rect.Top * scale),
                     (int)Math.Round(rect.Right * scale), (int)Math.Round(rect.Bottom * scale));
-                bool show = StartupComplete && !rowStaging && !dragging && !hidden && !manuallyHidden && Native.IsWindowVisible(Handle)
+                bool show = StartupComplete && !rowStaging && !dragging && (!hidden || visibilitySliding) && Native.IsWindowVisible(Handle)
                     && pixels.Width > 0 && pixels.Height > 0;
                 item.Animation.Place(pixels, show);
                 poses.Add((item, pixels, show));
@@ -87,9 +94,20 @@ internal sealed partial class DockWindow
                     && y >= p.Rect.Top - 4 * scale && y < p.Rect.Bottom + 4 * scale)
                 .OrderBy(p => Math.Pow(x - (p.Rect.Left + p.Rect.Right) / 2d, 2) + Math.Pow(y - (p.Rect.Top + p.Rect.Bottom) / 2d, 2))
                 .Select(p => p.Item).FirstOrDefault();
+            if (settleVisibility && !hidden) suppressRevealHover = hovered != null;
+            else if (!hidden && !visibilitySliding && hovered == null) suppressRevealHover = false;
             foreach (var pose in poses)
-                pose.Item.Animation.SetState(ReferenceEquals(hovered, pose.Item), mousePressed && ReferenceEquals(hovered, pose.Item),
-                    TaskbarModuleTrigger.IsActive(pose.Item.Entry.Item.Kind) == true, Motion);
+            {
+                if (visibilitySliding || (settleVisibility && pose.Item.Entry.Item.Kind == ItemKind.Search))
+                {
+                    pose.Item.Animation.FreezeMotion();
+                    continue;
+                }
+                pose.Item.Animation.SetState(!suppressRevealHover && ReferenceEquals(hovered, pose.Item),
+                    !suppressRevealHover && pressedButtons.Contains(pose.Item.Button) && ReferenceEquals(hovered, pose.Item),
+                    TaskbarModuleTrigger.IsActive(pose.Item.Entry.Item.Kind) == true,
+                    Motion && !hidden && !visibilitySliding && !settleVisibility && !suppressRevealHover);
+            }
         }
         catch (Exception ex)
         {

@@ -31,7 +31,7 @@ internal sealed partial class DockWindow
             if (edgeActivation.Update(edge, ReleasedEdge(cursor), popupCount > 0 || dragging, DateTime.UtcNow, Settings.RevealDelayMs))
             { edgeToggleHidden = !edgeToggleHidden; manuallyHidden = false; }
             bool shouldHide = edgeToggleHidden || (fullscreen && !excluded && !interacting && !edge);
-            if (shouldHide) HideDock(immediate: fullscreen && Settings.HideImmediatelyForFullscreen);
+            if (shouldHide) HideDock();
             else if (hidden) ShowDock(restoreManualReservation: false);
             return true;
         }

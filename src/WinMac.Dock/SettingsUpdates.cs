@@ -7,9 +7,24 @@ namespace WinMac.Dock;
 
 internal sealed partial class SettingsWindow
 {
+    private NavigationView? settingsNavigation;
+    private Func<Task>? checkForUpdates;
+
+    internal void CheckForUpdates()
+    {
+        if (settingsNavigation is { } nav) nav.SelectedItem = nav.MenuItems[0];
+        if (checkForUpdates is { } check) _ = check();
+    }
+
     private const string DockReleaseApi = "https://api.github.com/repos/Asteski/WinMac-Dock/releases?per_page=20";
     private const string DockReleasePage = "https://github.com/Asteski/WinMac-Dock/releases";
     private static readonly HttpClient updateClient = new() { Timeout = TimeSpan.FromSeconds(10) };
+
+    private static Microsoft.UI.Xaml.Media.SolidColorBrush StatusBrush(ElementTheme theme, int light, int dark)
+    {
+        int rgb = theme == ElementTheme.Dark ? dark : light;
+        return new(Windows.UI.Color.FromArgb(255, (byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb));
+    }
 
     private void AddVersionAndUpdatesRow()
     {
@@ -35,9 +50,18 @@ internal sealed partial class SettingsWindow
             TextWrapping = TextWrapping.Wrap,
             TextAlignment = TextAlignment.Right,
             HorizontalAlignment = HorizontalAlignment.Right,
-            MaxWidth = 220,
-            Opacity = .75
+            MaxWidth = 220
         };
+        int lightStatus = 0x005FB8, darkStatus = 0x60CDFF;
+        void UpdateStatusColor() => status.Foreground = StatusBrush(status.ActualTheme, lightStatus, darkStatus);
+        status.ActualThemeChanged += (_, _) => UpdateStatusColor();
+        void ShowStatus(string message, int light, int dark)
+        {
+            lightStatus = light;
+            darkStatus = dark;
+            status.Text = message;
+            UpdateStatusColor();
+        }
         var details = new Button { Content = "View release notes", Visibility = Visibility.Collapsed, HorizontalAlignment = HorizontalAlignment.Right };
         details.Click += (_, _) => dock.TryAction(() => ShellService.Open(DockReleasePage));
         var actions = new StackPanel { Spacing = 6, HorizontalAlignment = HorizontalAlignment.Right };
@@ -47,7 +71,7 @@ internal sealed partial class SettingsWindow
 
         var latestVersion = new TextBlock { Text = "Latest version: Not checked", Opacity = .75, TextWrapping = TextWrapping.Wrap };
         var versions = new StackPanel { Spacing = 4, VerticalAlignment = VerticalAlignment.Top };
-        versions.Children.Add(new TextBlock { Text = DockWindow.BetaVersion });
+        versions.Children.Add(new TextBlock { Text = DockWindow.DisplayVersion });
         versions.Children.Add(latestVersion);
         var row = new Grid { ColumnSpacing = 20 };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -75,10 +99,11 @@ internal sealed partial class SettingsWindow
         controls.Children.Add(folder);
         panel.Children.Add(controls);
 
-        check.Click += async (_, _) =>
+        async Task Check()
         {
+            if (!check.IsEnabled) return;
             check.IsEnabled = false;
-            status.Text = "Checking for updates...";
+            ShowStatus("Checking for updates...", 0x005FB8, 0x60CDFF);
             status.Visibility = Visibility.Visible;
             details.Visibility = Visibility.Collapsed;
             try
@@ -87,21 +112,27 @@ internal sealed partial class SettingsWindow
                 var installed = typeof(SettingsWindow).Assembly.GetName().Version;
                 if (installed == null) throw new InvalidOperationException("The installed version is unavailable.");
                 var current = new Version(installed.Major, installed.Minor, Math.Max(0, installed.Build));
-                latestVersion.Text = $"Latest version: {latest}";
-                bool available = latest > current;
-                status.Text = available ? $"WinMac Dock {latest} is available." : "You're up to date.";
+                bool prerelease = DockWindow.DisplayVersion.Contains(" RC", StringComparison.OrdinalIgnoreCase)
+                    || DockWindow.DisplayVersion.Contains("beta", StringComparison.OrdinalIgnoreCase);
+                string label = latest.Number + (latest.Prerelease ? " (prerelease)" : "");
+                latestVersion.Text = $"Latest version: {label}";
+                bool available = latest.CompareTo(new DockReleaseVersion(current, prerelease)) > 0;
+                if (available) ShowStatus($"WinMac Dock {label} is available.", 0x974600, 0xFFB366);
+                else ShowStatus("You're up to date.", 0x0F6D32, 0x6CCB80);
                 if (available) details.Visibility = Visibility.Visible;
             }
             catch (Exception ex)
             {
                 Log.Write(ex);
-                status.Text = "Couldn't check for updates. Try again later.";
+                ShowStatus("Couldn't check for updates. Try again later.", 0xA4262C, 0xFF99A4);
             }
             finally { check.IsEnabled = true; }
-        };
+        }
+        checkForUpdates = Check;
+        check.Click += async (_, _) => await Check();
     }
 
-    private static async Task<Version> ReadLatestDockVersion()
+    private static async Task<DockReleaseVersion> ReadLatestDockVersion()
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, DockReleaseApi);
         request.Headers.UserAgent.ParseAdd("WinMac-Dock");
@@ -110,14 +141,13 @@ internal sealed partial class SettingsWindow
         response.EnsureSuccessStatusCode();
         using var releases = JsonDocument.Parse(await response.Content.ReadAsStringAsync().ConfigureAwait(false));
 
-        Version? latest = null;
+        DockReleaseVersion? latest = null;
         foreach (var release in releases.RootElement.EnumerateArray())
         {
             if (release.GetProperty("draft").GetBoolean()) continue;
             string? tag = release.GetProperty("tag_name").GetString();
-            if (tag == null || !Version.TryParse(tag.TrimStart('v', 'V').Split('-', '+')[0], out var parsed)) continue;
-            var version = new Version(parsed.Major, parsed.Minor, Math.Max(0, parsed.Build));
-            if (latest == null || version > latest) latest = version;
+            if (!DockReleaseVersion.TryParse(tag, release.GetProperty("prerelease").GetBoolean(), out var version)) continue;
+            if (latest == null || version.CompareTo(latest.Value) > 0) latest = version;
         }
         return latest ?? throw new InvalidDataException("GitHub did not return a versioned WinMac Dock release.");
     }

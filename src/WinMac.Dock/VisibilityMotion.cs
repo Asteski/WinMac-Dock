@@ -17,6 +17,7 @@ internal sealed partial class DockWindow
     }
     private void AnimateVisibility(bool show, bool immediate = false)
     {
+        pressedButtons.Clear();
         FinishRowTransition();
         bool reversing = visibilitySliding;
         StopVisibilityAnimation();
@@ -45,11 +46,12 @@ internal sealed partial class DockWindow
         // or appbar reservation. Repair that one-time move before drawing.
         if (Native.Bounds(Handle) != hostBounds)
             Native.SetWindowPos(Handle, -1, hostBounds.Left, hostBounds.Top, hostBounds.Width, hostBounds.Height, 0x10 | 0x40);
-        var panel = DockGeometry.Slide(resting, PositionEdge, visibilityFraction, Settings.FloatingGap, Settings.KeepHiddenEdgeTrigger);
+        var panel = DockGeometry.Slide(resting, PositionEdge, visibilityFraction, Settings.FloatingGap, keepEdgeTrigger: false);
         int dx = panel.Left - resting.Left, dy = panel.Top - resting.Top;
         // The input envelope stays fixed; the native material frame follows
         // the panel so its system shadow moves with the visible dock.
         visibilityShift.X = dx / scale; visibilityShift.Y = dy / scale;
+        SyncShellAnimatedIcons();
         PaintMaterialSurface(0);
     }
     private void FinishVisibilityAnimation()
@@ -60,5 +62,6 @@ internal sealed partial class DockWindow
         materialHostBounds = default;
         root.Opacity = hidden ? 0 : 1;
         Reposition(true);
+        SyncShellAnimatedIcons(settleVisibility: true);
     }
 }

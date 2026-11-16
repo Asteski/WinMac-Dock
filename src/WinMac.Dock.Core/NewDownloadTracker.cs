@@ -54,10 +54,31 @@ public static class DownloadPinLayout
     }
 
     public static List<DockItem> OrderPins(IEnumerable<DockItem> items) => items.OrderBy(i => i.IsDownloadedPin ? 2 : i.IsAutoUsbPin ? 1 : 0).ToList();
+    public static List<AutomaticItemKind> NormalizeOrder(IEnumerable<AutomaticItemKind>? order) =>
+        (order ?? []).Where(kind => Enum.IsDefined(kind)).Concat(Enum.GetValues<AutomaticItemKind>()).Distinct().ToList();
+
+    private static AutomaticItemKind? AutomaticKind(DockEntry entry)
+    {
+        if (!entry.IsPinned) return AutomaticItemKind.Windows;
+        if (entry.Item.IsAutoUsbPin) return AutomaticItemKind.ExternalDisks;
+        if (!entry.Item.IsDownloadedPin) return null;
+        return entry.Item.CapturePin switch
+        {
+            CapturePinKind.Screenshot => AutomaticItemKind.Screenshots,
+            CapturePinKind.Recording => AutomaticItemKind.Recordings,
+            _ => AutomaticItemKind.Downloads
+        };
+    }
+
+    public static List<DockEntry> OrderEntries(IEnumerable<DockEntry> entries, IEnumerable<AutomaticItemKind>? order)
+    {
+        var kinds = NormalizeOrder(order);
+        return entries.OrderBy(entry => AutomaticKind(entry) is { } kind ? kinds.IndexOf(kind) : -1).ToList();
+    }
+
     public static bool NeedsSeparator(DockEntry? previous, DockEntry entry) =>
-        previous == null ? !entry.IsPinned : previous.Item.Kind != ItemKind.Separator &&
-        (previous.IsPinned && !entry.IsPinned || previous.IsPinned && entry.IsPinned &&
-            (!previous.Item.IsDownloadedPin && entry.Item.IsDownloadedPin || !previous.Item.IsAutoUsbPin && entry.Item.IsAutoUsbPin));
+        previous == null ? !entry.IsPinned : previous.Item.Kind != ItemKind.Separator
+            && entry.Item.Kind != ItemKind.Separator && AutomaticKind(previous) != AutomaticKind(entry);
     public static List<bool> IconFlags(IReadOnlyList<DockEntry> entries)
     {
         var flags = new List<bool>();

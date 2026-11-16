@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 namespace WinMac.Dock.Core;
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
-public enum ItemKind { Application, File, Folder, RecycleBin, StartMenu, Separator, TaskView, Search }
+public enum ItemKind { Application, File, Folder, RecycleBin, StartMenu, Separator, TaskView, Search, Spacer }
 public enum AdditionalCommandsVisibility { MainMenu, Submenu, Hidden }
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum HideMode { AlwaysVisible, AfterDelay, Maximized, ActiveWindowOverlap, EdgeToggle }
@@ -38,6 +38,8 @@ public enum GroupIndicatorCorner { TopRight, TopLeft, BottomRight, BottomLeft }
 public enum GroupIndicatorShape { Circle, Square, Squircle }
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum AttentionAnimation { Blink, HighBounce }
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum AutomaticItemKind { ExternalDisks, Downloads, Screenshots, Recordings, Windows }
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum CapturePinKind { None, Screenshot, Recording }
 
@@ -112,7 +114,15 @@ public sealed record DockItem
     public bool RunAsAdministrator { get; set; }
     public bool ConfirmRecycleBinEmpty { get; set; } = true;
     public bool PlayRecycleBinSounds { get; set; }
-    public int RecycleBinSoundVolumePercent { get; set; } = 300;
+    public string RecycleDropSoundPath { get; set; } = "";
+    public string RecycleEmptySoundPath { get; set; } = "";
+    public const int DefaultRecycleSoundVolumePercent = 100;
+    public const int MaxRecycleSoundVolumePercent = 200;
+    public int RecycleBinSoundVolumePercent { get; set; } = DefaultRecycleSoundVolumePercent;
+    public int? RecycleDropSoundVolumePercent { get; set; }
+    public int? RecycleEmptySoundVolumePercent { get; set; }
+    public int RecycleSoundVolume(bool empty) =>
+        Math.Clamp((empty ? RecycleEmptySoundVolumePercent : RecycleDropSoundVolumePercent) ?? RecycleBinSoundVolumePercent, 0, MaxRecycleSoundVolumePercent);
     public bool ShowThumbnail { get; set; }
     public bool PinUsbDrives { get; set; } = true;
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
@@ -141,6 +151,8 @@ public sealed record DockSettings
     public int Version { get; set; } = 1;
     public bool RecycleBinDefaultsUpdated { get; set; }
     public int IconSize { get; set; } = 32;
+    public List<AutomaticItemKind> AutomaticItemOrder { get; set; } = [.. Enum.GetValues<AutomaticItemKind>()];
+    public bool CustomFolderFlyoutIconSize { get; set; }
     public int FolderFlyoutIconSize { get; set; } = 40;
     public int MagnifiedSize { get; set; } = 48;
     // 0 keeps icons at their normal size; 100 uses the largest enlargement
@@ -148,9 +160,9 @@ public sealed record DockSettings
     public int HoverMagnificationPercent { get; set; } = 100;
     public int MagnificationSpan { get; set; } = 5;
     public int MagnificationMs { get; set; } = 120;
-    public int AnimationMs { get; set; } = 200;
-    public int RunningClickAnimationMs { get; set; } = 667;
-    public int LaunchBounceMs { get; set; } = 940;
+    public int AnimationMs { get; set; } = 300;
+    public int RunningClickAnimationMs { get; set; } = 700;
+    public int LaunchBounceMs { get; set; } = 1140;
     public int HideDelayMs { get; set; } = 500;
     public int ManualOverlayHideDelayMs { get; set; } = 500;
     public int RevealDelayMs { get; set; } = 150;
@@ -178,6 +190,8 @@ public sealed record DockSettings
     public bool StartAtLogin { get; set; }
     public bool AlwaysRunAsAdministrator { get; set; }
     public bool ShowTrayIcon { get; set; } = true;
+    public bool UseMonochromeTrayIcon { get; set; }
+    public bool TraySingleClickOpensSettings { get; set; }
     public bool ReduceMotion { get; set; }
     public bool MagnificationEnabled { get; set; } = true;
     public bool ShowDockSettingsInItemMenus { get; set; }
@@ -200,7 +214,6 @@ public sealed record DockSettings
     public DockAlignment Alignment { get; set; } = DockAlignment.Center;
     public int FloatingGap { get; set; }
     public bool ActivateThroughScreenEdgeGap { get; set; } = true;
-    public bool KeepHiddenEdgeTrigger { get; set; } = true;
     public bool FullScreenEdgeTrigger { get; set; }
     public int DockMarginLeft { get; set; } = 4;
     public int DockMarginTop { get; set; } = 4;
@@ -222,6 +235,7 @@ public sealed record DockSettings
     public bool WindowsTaskbarHighlights { get => true; set { } }
     public bool FollowWindowsAnimations { get; set; } = true;
     public bool ShowIconHighlights { get; set; }
+    public bool AnimateFolderFlyoutClosing { get; set; }
     public DockHighlightMode HighlightMode { get; set; } = DockHighlightMode.Background;
     public bool ShowIconLabels { get; set; } = true;
     public bool ShowFileExtensionsInTooltips { get; set; }
@@ -322,7 +336,7 @@ public sealed record DockSettings
             item.Folder ??= new();
             item.Snipping ??= new(); item.Snipping.PinLimit = Math.Clamp(item.Snipping.PinLimit, 1, 9);
             if (!Enum.IsDefined(item.CapturePin)) item.CapturePin = CapturePinKind.None;
-            item.RecycleBinSoundVolumePercent = Math.Clamp(item.RecycleBinSoundVolumePercent, 0, 600);
+            item.RecycleBinSoundVolumePercent = Math.Clamp(item.RecycleBinSoundVolumePercent, 0, DockItem.MaxRecycleSoundVolumePercent);
             item.Folder.GridRows = item.Folder.GridRows <= 0 ? 5 : Math.Clamp(item.Folder.GridRows, 1, 7);
             item.Folder.DownloadPinLimit = Math.Clamp(item.Folder.DownloadPinLimit, 1, 9);
             item.Folder.GridColumns = item.Folder.GridColumns <= 0 ? 5 : Math.Clamp(item.Folder.GridColumns, 1, 7);
@@ -486,7 +500,7 @@ public static class DockGeometry
     // must fit in the remaining space without changing the window or hit targets.
     public static double HoverSize(int iconSize, int magnifiedSize, double strength) => iconSize + (Math.Min(magnifiedSize, iconSize + 8) - iconSize) * Math.Clamp(strength, 0, 1);
     // Magnification is allowed to grow outside the dock background. A value
-    // of 100 doubles the icon, matching the familiar macOS/Nexus behavior.
+    // of 100 doubles the icon, matching the familiar macOS/Nexus behaviour.
     public static double HoverSizePercent(double iconSize, int percent, double strength) => iconSize * (1 + Math.Clamp(percent, 0, 100) / 100d * Math.Clamp(strength, 0, 1));
 }
 

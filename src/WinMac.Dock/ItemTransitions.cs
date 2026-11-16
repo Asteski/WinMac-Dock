@@ -17,7 +17,6 @@ internal sealed partial class DockWindow
         public bool ClosingIndicator;
     }
     private readonly Canvas rowArtwork = new() { IsHitTestVisible = false };
-    private readonly Border rowOutline = new() { IsHitTestVisible = false, BackgroundSizing = BackgroundSizing.InnerBorderEdge };
     private readonly List<RowMove> rowMoves = [];
     private bool rowAnimating, rowFinishing, rowPainting, rowStaging;
     private bool rowPopupTransition;
@@ -33,7 +32,7 @@ internal sealed partial class DockWindow
     private double retainedRowScale;
     private double[]? rowResumeGrowth;
     private bool rowResumeEngaged;
-    private PixelRect MaterialPanel => materialVisible ? materialHostBounds : resting;
+    private PixelRect MaterialPanel => materialVisible ? materialViewport : resting;
 
     private RowScene CaptureRowScene()
     {
@@ -109,7 +108,7 @@ internal sealed partial class DockWindow
                 copy.SetBinding(Image.SourceProperty, new Binding { Source = image, Path = new PropertyPath("Source") });
                 clone = copy; break;
             case FontIcon glyph: clone = new FontIcon { Glyph = glyph.Glyph, FontFamily = glyph.FontFamily, FontSize = glyph.FontSize, Foreground = glyph.Foreground }; break;
-            case TextBlock text: clone = new TextBlock { Text = text.Text, FontSize = text.FontSize, Foreground = text.Foreground, FontWeight = text.FontWeight, TextAlignment = text.TextAlignment }; break;
+            case TextBlock text: clone = new TextBlock { Text = text.Text, FontSize = text.FontSize, Foreground = text.Foreground, FontWeight = text.FontWeight, TextAlignment = text.TextAlignment, TextLineBounds = text.TextLineBounds }; break;
             case Border border:
                 clone = new Border { Background = border.Background, BackgroundSizing = border.BackgroundSizing, BorderBrush = border.BorderBrush, BorderThickness = border.BorderThickness, CornerRadius = border.CornerRadius,
                     Child = border.Child is FrameworkElement child ? CloneRowVisual(child, restoreShellArtwork) : null }; break;
@@ -230,8 +229,6 @@ internal sealed partial class DockWindow
             Native.SetWindowPos(Handle, -1, bounds.Left, bounds.Top, bounds.Width, bounds.Height, 0x10 | 0x40);
         hoverClip = null;
         strip.Opacity = 0; hoverArtwork.Opacity = 0; dockBorder.Opacity = 0;
-        rowOutline.BorderBrush = dockBorder.BorderBrush; rowOutline.BorderThickness = dockBorder.BorderThickness; rowOutline.CornerRadius = dockBorder.CornerRadius;
-        rowArtwork.Children.Add(rowOutline);
         foreach (var move in rowMoves) rowArtwork.Children.Add(move.Sprite.View);
         if (!root.Children.Contains(rowArtwork)) root.Children.Add(rowArtwork);
         rowFromPanel = before.Panel; rowToPanel = after.Panel; rowDisplayPanel = rowFromPanel;
@@ -257,8 +254,6 @@ internal sealed partial class DockWindow
             rowDisplayPanel = new((int)Math.Round(Lerp(rowFromPanel.Left, rowToPanel.Left)), (int)Math.Round(Lerp(rowFromPanel.Top, rowToPanel.Top)),
                 (int)Math.Round(Lerp(rowFromPanel.Right, rowToPanel.Right)), (int)Math.Round(Lerp(rowFromPanel.Bottom, rowToPanel.Bottom)));
             var input = rowDisplayPanel;
-            Canvas.SetLeft(rowOutline, (rowDisplayPanel.Left - hostBounds.Left) / scale); Canvas.SetTop(rowOutline, (rowDisplayPanel.Top - hostBounds.Top) / scale);
-            rowOutline.Width = rowDisplayPanel.Width / scale; rowOutline.Height = rowDisplayPanel.Height / scale;
             foreach (var move in rowMoves)
             {
                 var value = new Windows.Foundation.Rect(Lerp(move.From.X, move.To.X), Lerp(move.From.Y, move.To.Y), Lerp(move.From.Width, move.To.Width), Lerp(move.From.Height, move.To.Height));
@@ -308,10 +303,9 @@ internal sealed partial class DockWindow
         if (!rowAnimating || rowFinishing) return;
         rowFinishing = true;
         var previousHost = hostBounds;
-        var previousMaterialHost = materialHostBounds;
         double elapsed = Stopwatch.GetElapsedTime(rowStamp).TotalMilliseconds;
         bool natural = !reconciling && !positioning && rowDisplayPanel == rowToPanel && elapsed >= DockMotion.RearrangeMs;
-        bool spanLayoutSettled = rowSpanTransition && natural && resting == rowToPanel && materialHostBounds == rowToPanel
+        bool spanLayoutSettled = rowSpanTransition && natural && resting == rowToPanel
             && Native.Bounds(Handle) == hostBounds;
         try
         {
@@ -321,7 +315,15 @@ internal sealed partial class DockWindow
             // outline to stretch/automatic sizing before painting it again.
             // Keep the completed geometry; interrupted/layout-changing tweens
             // still need the normal reposition and reconciliation path.
-            if (!spanLayoutSettled) Reposition(false);
+            if (!spanLayoutSettled)
+            {
+                // Retain the final transition clip until live hover geometry
+                // has been restored. Reposition can paint an intermediate width.
+                bool wasStaging = rowStaging;
+                rowStaging = true;
+                try { Reposition(false); }
+                finally { rowStaging = wasStaging; }
+            }
             hoverRebuilding = false; root.UpdateLayout();
             // An edge/work-area/settings change can end a tween before its old
             // row has been refitted. Reconcile that row before painting hover.

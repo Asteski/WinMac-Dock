@@ -136,6 +136,28 @@ internal sealed class ShellAnimatedIcon : IDisposable
         clickVisual.StartAnimation("Scale", animation); batch.End(); animation.Dispose();
     }
 
+    internal void FreezeMotion()
+    {
+        if (playback != null)
+        {
+            var old = playback;
+            playback = null;
+            visual.Properties.StopAnimation("Progress");
+            old.Dispose();
+        }
+        queuedPress = null;
+        clickVisual.StopAnimation("Scale");
+        clickVisual.Scale = Vector3.One;
+        if (isSearch)
+        {
+            // A click before the slide must not leave a timed return animation
+            // pending when the native icon becomes visible again.
+            searchClickUntil = 0;
+            visual.Properties.InsertScalar("Progress", (float)markers["NormalOnToNormalOff_End"]);
+            state = requestedState = "NormalOff";
+        }
+    }
+
     public void SetState(bool hover, bool pressed, bool active, bool motion)
     {
         // UIA observes the shell toggle shortly after mouse release. Keep the

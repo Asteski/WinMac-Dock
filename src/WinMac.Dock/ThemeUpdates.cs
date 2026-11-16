@@ -7,6 +7,22 @@ using Windows.UI.ViewManagement;
 namespace WinMac.Dock;
 internal sealed partial class DockWindow
 {
+    private string trayIconReference = BundledIcons.Tray;
+
+    private void UpdateTrayIcon()
+    {
+        if (closing || MonitorOverride != null) return;
+        string reference = Settings.UseMonochromeTrayIcon
+            ? (TaskbarMaterialTheme() == ElementTheme.Dark ? BundledIcons.MenuDark : BundledIcons.MenuLight)
+            : BundledIcons.Tray;
+        if (trayIconReference == reference) return;
+        var previous = tray.Icon;
+        int pixels = Settings.UseMonochromeTrayIcon ? System.Windows.Forms.SystemInformation.SmallIconSize.Width : 32;
+        tray.Icon = IconResources.Load(reference, pixels);
+        trayIconReference = reference;
+        previous?.Dispose();
+    }
+
     internal static ElementTheme TaskbarMaterialTheme()
     {
         using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");

@@ -145,10 +145,10 @@ internal sealed partial class DockWindow
         hoverClip = null;
         root.UpdateLayout();
         var children = strip.Children.OfType<FrameworkElement>().ToArray();
-        var starts = DockSpacing.Starts(children.Select(e => e is Button ? ButtonSize : SeparatorWidth).ToArray(), children.Select(e => e is Button).ToArray(), DisplaySpacing);
+        var starts = DockSpacing.Starts(children.Select(DragElementLength).ToArray(), children.Select(OccupiesIconSlot).ToArray(), DisplaySpacing);
         double rowStart = Vertical ? MarginDip(Settings.DockMarginTop) : MarginDip(Settings.DockMarginLeft);
         double rowEnd = Vertical ? MarginDip(Settings.DockMarginBottom) : MarginDip(Settings.DockMarginRight);
-        double rowContent = DockSpacing.Length(children.Select(e => e is Button ? ButtonSize : SeparatorWidth).ToArray(), children.Select(e => e is Button).ToArray(), DisplaySpacing);
+        double rowContent = DockSpacing.Length(children.Select(DragElementLength).ToArray(), children.Select(OccupiesIconSlot).ToArray(), DisplaySpacing);
         double rowExtent = (Vertical ? resting.Height : resting.Width) / scale;
         double rowOffset = PositionAlignment switch
         {
@@ -167,9 +167,9 @@ internal sealed partial class DockWindow
             // frame. Anchor the live buttons to the intended resting row now;
             // the correction disappears when WinUI catches up.
             var originBefore = element.TransformToVisual(root).TransformPoint(new Windows.Foundation.Point());
-            double intendedX = Vertical && element is Button ? (resting.Left - hostBounds.Left) / scale
+            double intendedX = Vertical && OccupiesIconSlot(element) ? (resting.Left - hostBounds.Left) / scale
                 : rowX + (Vertical ? (ButtonSize - element.ActualWidth) / 2 : starts[index]);
-            double intendedY = !Vertical && element is Button ? (resting.Top - hostBounds.Top) / scale
+            double intendedY = !Vertical && OccupiesIconSlot(element) ? (resting.Top - hostBounds.Top) / scale
                 : rowY + (Vertical ? starts[index] : (ButtonSize - element.ActualHeight) / 2);
             // Keep WinUI's settled pixel rounding. A one-pixel correction here
             // disappears at reset, producing a visible hop after hover-out.
@@ -307,8 +307,8 @@ internal sealed partial class DockWindow
                 }
             }
         }
-        hoverWave = new MagnificationWave(children.Select(e => e is Button ? ButtonSize : SeparatorWidth).ToArray(),
-            children.Select(e => e is Button).ToArray(), DisplaySpacing);
+        hoverWave = new MagnificationWave(children.Select(DragElementLength).ToArray(),
+            children.Select(OccupiesIconSlot).ToArray(), DisplaySpacing);
         hoverAvailableExpansion = Math.Max(0, (Vertical ? hostBounds.Height : hostBounds.Width) / scale - rowContent - rowStart - rowEnd);
         hoverLayoutStamp = CaptureHoverLayout();
     }
@@ -517,8 +517,7 @@ internal sealed partial class DockWindow
             Math.Min(hostBounds.Width, bounds.Right - hostBounds.Left), Math.Min(hostBounds.Height, bounds.Bottom - hostBounds.Top));
         if (hidden && !visibilitySliding)
         {
-            var trigger = DockGeometry.Hidden(resting, PositionEdge, Settings.FloatingGap);
-            clip = Settings.KeepHiddenEdgeTrigger ? new(trigger.Left - hostBounds.Left, trigger.Top - hostBounds.Top, trigger.Right - hostBounds.Left, trigger.Bottom - hostBounds.Top) : new(0, 0, 0, 0);
+            clip = new(0, 0, 0, 0);
         }
         if (resetComposite || hoverClip != clip) { Native.SetDockRegion(Handle, clip); hoverClip = clip; }
     }
@@ -572,7 +571,7 @@ internal sealed partial class DockWindow
     private void EnlargedIconPressed(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
     {
         if (hoverWave == null || dragging || popupCount > 0) return;
-        // Normal button clicks keep their existing capture/drag/click behavior.
+        // Normal button clicks keep their existing capture/drag/click behaviour.
         // This only covers artwork enlarged outside its original button slot.
         for (var element = e.OriginalSource as DependencyObject; element != null; element = VisualTreeHelper.GetParent(element))
             if (element is Button) return;

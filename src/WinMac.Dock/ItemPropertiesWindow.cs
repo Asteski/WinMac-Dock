@@ -310,17 +310,31 @@ internal sealed class ItemPropertiesWindow : Window
         var ok = new Button { Content = "OK", Width = 84 }; ok.Click += (_, _) => Save(true);
         var cancel = new Button { Content = "Cancel", Width = 84 }; cancel.Click += (_, _) => Close();
         apply.Click += (_, _) => Save(false);
-        actions.Children.Add(ok); actions.Children.Add(cancel); actions.Children.Add(apply); panel.Children.Add(actions);
-        chrome = new WindowChrome(this, new ScrollViewer { Content = panel, HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }, panel.RequestedTheme);
+        actions.Children.Add(ok); actions.Children.Add(cancel); actions.Children.Add(apply);
+        var footer = new Border { Padding = new Thickness(24, 12, 24, 20), Child = actions };
+        var layout = new Grid();
+        layout.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
+        layout.RowDefinitions.Add(new() { Height = GridLength.Auto });
+        layout.Children.Add(new ScrollViewer { Content = panel, HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
+        Grid.SetRow(footer, 1);
+        layout.Children.Add(footer);
+        chrome = new WindowChrome(this, layout, panel.RequestedTheme);
         chrome.Root.AddHandler(UIElement.KeyDownEvent, new Microsoft.UI.Xaml.Input.KeyEventHandler((_, e) => { if (e.Key == Windows.System.VirtualKey.Escape) { e.Handled = true; Close(); } }), true);
-        if (AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter) presenter.IsMaximizable = false;
-        Native.SetWindowSubclass(WinRT.Interop.WindowNative.GetWindowHandle(this), Native.FixedHeightSubclass, 104, 0);
+        if (AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter) { presenter.IsMaximizable = false; presenter.IsMinimizable = false; }
+        Native.SetWindowSubclass(WinRT.Interop.WindowNative.GetWindowHandle(this), Native.FixedHeightSubclass, 104, 430);
         panel.RequestedTheme = ElementTheme.Default;
         foreach (var box in new[] { target, icon, darkIcon, identity }) box.TextChanged += (_, _) => _ = RefreshPreview();
         panel.ActualThemeChanged += (_, _) => _ = RefreshPreview();
         var display = dock.ResolveDisplay();
-        panel.Loaded += (_, _) => { FitHeight(display); _ = RefreshPreview(); };
-        Closed += (_, _) => { Native.RemoveWindowSubclass(WinRT.Interop.WindowNative.GetWindowHandle(this), Native.FixedHeightSubclass, 104); closed = true; previewRevision++; try { File.Delete(windowIcon); } catch { } };
+        panel.Loaded += (_, _) => { FitHeight(display, footer.DesiredSize.Height); _ = RefreshPreview(); };
+        Closed += (_, _) =>
+        {
+            Native.RemoveWindowSubclass(WinRT.Interop.WindowNative.GetWindowHandle(this), Native.FixedHeightSubclass, 104);
+            closed = true;
+            previewRevision++;
+            chrome.ReleaseBody();
+            try { File.Delete(windowIcon); } catch { }
+        };
         PositionCentered(display, 650);
         TrackEdits(panel);
         // Icon cards edit backing text boxes rather than displaying them.
@@ -329,12 +343,12 @@ internal sealed class ItemPropertiesWindow : Window
         appliedValues = CurrentValues();
         UpdateApplyState();
     }
-    private void FitHeight(MonitorData display)
+    private void FitHeight(MonitorData display, double footerHeight)
     {
         panel.Measure(new Windows.Foundation.Size(Math.Min(584, display.Work.Width / display.Scale), double.PositiveInfinity));
         var client = Native.ClientBounds(WinRT.Interop.WindowNative.GetWindowHandle(this));
         int frameHeight = Math.Max(0, AppWindow.Size.Height - client.Height);
-        PositionCentered(display, panel.DesiredSize.Height + 32 + frameHeight / display.Scale);
+        PositionCentered(display, panel.DesiredSize.Height + footerHeight + 32 + frameHeight / display.Scale);
     }
     private void PositionCentered(MonitorData display, double heightDip)
     {
@@ -361,9 +375,7 @@ internal sealed class ItemPropertiesWindow : Window
         {
             try
             {
-                var picker = new Windows.Storage.Pickers.FolderPicker(); picker.FileTypeFilter.Add("*");
-                WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
-                var folder = await picker.PickSingleFolderAsync(); if (folder != null && !closed) box.Text = folder.Path;
+                var folder = DockFileDialog.PickFolder(WinRT.Interop.WindowNative.GetWindowHandle(this)); if (folder != null && !closed) box.Text = folder;
             }
             catch (Exception ex) { Log.Write(ex); if (captureSettingsError != null) captureSettingsError.Text = ex.Message; }
         };
@@ -390,16 +402,12 @@ internal sealed class ItemPropertiesWindow : Window
             {
                 if (header == "Target" && item.Kind == ItemKind.Folder)
                 {
-                    var folderPicker = new Windows.Storage.Pickers.FolderPicker(); folderPicker.FileTypeFilter.Add("*");
-                    WinRT.Interop.InitializeWithWindow.Initialize(folderPicker, WinRT.Interop.WindowNative.GetWindowHandle(this));
-                    var folder = await folderPicker.PickSingleFolderAsync(); if (folder != null && !closed) box.Text = folder.Path;
+                    var folder = DockFileDialog.PickFolder(WinRT.Interop.WindowNative.GetWindowHandle(this)); if (folder != null && !closed) box.Text = folder;
                     return;
                 }
-                var picker = new Windows.Storage.Pickers.FileOpenPicker(); picker.FileTypeFilter.Add("*");
-                WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
-                var file = await picker.PickSingleFileAsync(); if (file != null && !closed)
+                var file = DockFileDialog.PickFile(WinRT.Interop.WindowNative.GetWindowHandle(this)); if (file != null && !closed)
                 {
-                    var selected = header.Contains("icon", StringComparison.OrdinalIgnoreCase) ? await ChooseIconSource(file.Path) : file.Path;
+                    var selected = header.Contains("icon", StringComparison.OrdinalIgnoreCase) ? await ChooseIconSource(file) : file;
                     if (selected != null && !closed) box.Text = selected;
                 }
             }
@@ -457,12 +465,9 @@ internal sealed class ItemPropertiesWindow : Window
             {
                 try
                 {
-                    var picker = new Windows.Storage.Pickers.FileOpenPicker();
-                    foreach (var extension in new[] { ".ico", ".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp", ".svg", ".dll", ".exe" }) picker.FileTypeFilter.Add(extension);
-                    WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
-                    var file = await picker.PickSingleFileAsync();
+                    var file = DockFileDialog.PickFile(WinRT.Interop.WindowNative.GetWindowHandle(this), iconsOnly: true);
                     if (file == null || closed) return;
-                    var selected = await ChooseIconSource(file.Path);
+                    var selected = await ChooseIconSource(file);
                     if (selected == null || closed) return;
                     IconService.Invalidate(selected); SetIconPath(box, selected); await Update();
                 }
@@ -555,13 +560,10 @@ internal sealed class ItemPropertiesWindow : Window
             {
                 try
                 {
-                    var picker = new Windows.Storage.Pickers.FileOpenPicker();
-                    foreach (var extension in new[] { ".ico", ".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp", ".svg", ".dll", ".exe" }) picker.FileTypeFilter.Add(extension);
-                    WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
-                    var file = await picker.PickSingleFileAsync();
+                    var file = DockFileDialog.PickFile(WinRT.Interop.WindowNative.GetWindowHandle(this), iconsOnly: true);
                     if (file != null && !closed)
                     {
-                        var selected = await ChooseIconSource(file.Path);
+                        var selected = await ChooseIconSource(file);
                         if (selected == null || closed) return;
                         IconService.Invalidate(selected);
                         SetIconPath(box, selected);
