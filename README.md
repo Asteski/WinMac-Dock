@@ -15,7 +15,7 @@
 <p align="center">
   <a href="https://github.com/Asteski/WinMac-Dock/releases/download/v1.0.0-RC/WinMac-Dock-1.0.0-RC-x64.zip"><img alt="Download x64" src="https://img.shields.io/badge/Download-x64-0078D6?style=for-the-badge"></a>
   <a href="https://github.com/Asteski/WinMac-Dock/releases/download/v1.0.0-RC/WinMac-Dock-1.0.0-RC-arm64.zip"><img alt="Download ARM64" src="https://img.shields.io/badge/Download-ARM64-00A86B?style=for-the-badge"></a>
-</p>w
+</p>
 <p align="center">
   <img alt="Latest Release" src="https://img.shields.io/github/v/release/Asteski/WinMac-Dock">
   <img alt="Release Date" src="https://img.shields.io/github/release-date/Asteski/WinMac-Dock">
