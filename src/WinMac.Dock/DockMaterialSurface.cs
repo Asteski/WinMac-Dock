@@ -136,6 +136,12 @@ internal sealed partial class DockWindow
             viewport.Right - surface.Left, viewport.Bottom - surface.Top);
         if (materialClip != clip || materialClipRadius != radius)
         {
+            // The backdrop has its own HWND and DWM corner preference.
+            if (materialClip == null || (materialClipRadius == 0) != (radius == 0))
+            {
+                int cornerPreference = radius == 0 ? 1 : 0; // DWMWCP_DONOTROUND / DWMWCP_DEFAULT
+                Native.DwmSetWindowAttribute(materialHandle, 33, ref cornerPreference, 4);
+            }
             Native.SetDockRegion(materialHandle, clip, radius);
             materialClip = clip;
             materialClipRadius = radius;

@@ -36,6 +36,7 @@ public enum GroupedClickBehavior { ShowWindowList, ActivateLastUsed, Sequential 
 public enum GroupIndicatorCorner { TopRight, TopLeft, BottomRight, BottomLeft }
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum GroupIndicatorShape { Circle, Square, Squircle }
+public enum ItemIndicatorShape { Pill, Circle, Squircle } // Legacy Squircle values migrate to Circle.
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum AttentionAnimation { Blink, HighBounce }
 [JsonConverter(typeof(JsonStringEnumConverter))]
@@ -230,6 +231,7 @@ public sealed record DockSettings
     public bool SquareCornersWhenSpanning { get; set; }
     public GroupIndicatorCorner GroupIndicatorCorner { get; set; } = GroupIndicatorCorner.TopRight;
     public GroupIndicatorShape GroupIndicatorShape { get; set; } = GroupIndicatorShape.Circle;
+    public ItemIndicatorShape ItemIndicatorShape { get; set; }
     public bool SquareGroupIndicatorsWhenUnrounded { get; set; } = true;
     [System.Text.Json.Serialization.JsonIgnore]
     public bool WindowsTaskbarHighlights { get => true; set { } }
@@ -282,6 +284,9 @@ public sealed record DockSettings
         if (!Enum.IsDefined(Alignment)) Alignment = DockAlignment.Center;
         if (!Enum.IsDefined(GroupIndicatorCorner)) GroupIndicatorCorner = GroupIndicatorCorner.TopRight;
         if (!Enum.IsDefined(GroupIndicatorShape)) GroupIndicatorShape = GroupIndicatorShape.Circle;
+        if (GroupIndicatorShape == GroupIndicatorShape.Square) GroupIndicatorShape = GroupIndicatorShape.Squircle;
+        if (!Enum.IsDefined(ItemIndicatorShape)) ItemIndicatorShape = ItemIndicatorShape.Pill;
+        if (ItemIndicatorShape == ItemIndicatorShape.Squircle) ItemIndicatorShape = ItemIndicatorShape.Circle;
         FloatingGap = Math.Clamp(FloatingGap, 0, 8);
         DockMarginLeft = Math.Clamp(DockMarginLeft, 0, 8);
         DockMarginTop = Math.Clamp(DockMarginTop, 0, 8);
@@ -445,6 +450,20 @@ public static class VisibilityPolicy
 
 public static class DockOrdering
 {
+    private static bool IsSeparator(IReadOnlyList<DockItem> items, int index) =>
+        index >= 0 && index < items.Count && items[index].Kind == ItemKind.Separator;
+
+    public static int? SeparatorInsertionSlot(IReadOnlyList<DockItem> items, int slot)
+    {
+        slot = Math.Clamp(slot, 0, items.Count);
+        if (!IsSeparator(items, slot - 1) && !IsSeparator(items, slot)) return slot;
+        int direction = IsSeparator(items, slot) ? -1 : 1;
+        foreach (int step in new[] { direction, -direction })
+            for (int candidate = slot + step; candidate >= 0 && candidate <= items.Count; candidate += step)
+                if (!IsSeparator(items, candidate - 1) && !IsSeparator(items, candidate)) return candidate;
+        return null;
+    }
+
     // The insertion slot refers to the original list, before removing the source.
     public static bool Move(DockSettings settings, string itemId, int insertionSlot, bool overrideLock = false)
     {
@@ -456,6 +475,11 @@ public static class DockOrdering
         if (from == to) return false;
         var item = settings.Items[from];
         settings.Items.RemoveAt(from);
+        if (item.Kind == ItemKind.Separator && (IsSeparator(settings.Items, to - 1) || IsSeparator(settings.Items, to)))
+        {
+            settings.Items.Insert(from, item);
+            return false;
+        }
         settings.Items.Insert(to, item);
         return true;
     }

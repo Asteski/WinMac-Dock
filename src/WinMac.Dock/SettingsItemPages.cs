@@ -50,7 +50,7 @@ internal sealed partial class SettingsWindow
         {
             AddApplicationSort(applicationCards);
             installed = AddApplicationGroup("Installed apps", "\uE71D", expanded: false);
-            system = AddApplicationGroup("System components", "\uE782", expanded: true);
+            system = AddApplicationGroup("System components", "\uE782", expanded: false);
         }
 
         foreach (var (title, item, key) in ItemSettingsCards(page))
@@ -311,7 +311,7 @@ internal sealed partial class SettingsWindow
 
     private void AddItemCard(string page, string title, DockItem item, string? key, StackPanel? destination = null)
     {
-        var body = new StackPanel { Spacing = 10, Padding = new Thickness(20, 16, 20, 18) };
+        var body = new StackPanel { Spacing = page is "Modules" or "Folders" ? 0 : 10, Padding = page is "Modules" or "Folders" ? new Thickness(20, 0, 20, 0) : new Thickness(20, 16, 20, 18) };
         var card = (Border)Microsoft.UI.Xaml.Markup.XamlReader.Load("""
             <Border xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
@@ -341,6 +341,13 @@ internal sealed partial class SettingsWindow
         }
         else container.Children.Add(card);
 
+        void AddCardRow(string label, FrameworkElement control)
+        {
+            var row = SettingRow(label, control);
+            if (page is "Modules" or "Folders") ApplyCardRowLayout(row, body.Children.Count > 0);
+            body.Children.Add(row);
+        }
+
         void Changed()
         {
             if (key != null) ItemPreferences.Remember(dock.Settings, item, key);
@@ -351,7 +358,7 @@ internal sealed partial class SettingsWindow
         {
             var toggle = new ToggleSwitch { IsOn = initial };
             toggle.Toggled += (_, _) => { set(toggle.IsOn); Changed(); };
-            body.Children.Add(SettingRow(label, toggle));
+            AddCardRow(label, toggle);
         }
 
         void Icon(string label, string value, Action<string> set, string defaultValue = "")
@@ -432,7 +439,7 @@ internal sealed partial class SettingsWindow
             };
             buttons.Children.Add(preview);
             buttons.Children.Add(browse);
-            body.Children.Add(SettingRow(label, buttons));
+            AddCardRow(label, buttons);
         }
 
         void Sound(string label, string path, Action<string> set, bool empty)
@@ -529,7 +536,7 @@ internal sealed partial class SettingsWindow
             };
             actions.Children.Add(volume);
             actions.Children.Add(browse);
-            body.Children.Add(SettingRow(label, actions));
+            AddCardRow(label, actions);
         }
 
         if (item.Kind == ItemKind.RecycleBin)
@@ -563,7 +570,7 @@ internal sealed partial class SettingsWindow
         {
             var view = new ComboBox { ItemsSource = Enum.GetValues<FolderView>(), SelectedItem = item.Folder.View };
             view.SelectionChanged += (_, _) => { if (view.SelectedItem is FolderView selected) { item.Folder.View = selected; Changed(); } };
-            body.Children.Add(SettingRow("Folder view", view));
+            AddCardRow("Folder view", view);
             Toggle("Stack folder contents on the icon", item.Folder.StackIcon, value => item.Folder.StackIcon = value);
         }
         foreach (var (label, value, set) in CommandSettings(item, key))
@@ -579,7 +586,7 @@ internal sealed partial class SettingsWindow
                 set((AdditionalCommandsVisibility)menu.SelectedIndex);
                 Changed();
             };
-            body.Children.Add(SettingRow(label, menu));
+            AddCardRow(label, menu);
         }
         Icon("Default / light icon", item.CustomIcon, value => item.CustomIcon = value);
         Icon("Dark icon", item.DarkModeIcon, value => item.DarkModeIcon = value);

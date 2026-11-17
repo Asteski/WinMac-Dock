@@ -592,6 +592,11 @@ internal sealed partial class DockWindow : Window
         }
         else if (special != null && special is not ("taskview" or "search")) BetaDefaults.ApplyProperties(item, DefaultSpecialItem(special));
         if (item.Kind == ItemKind.StartMenu) at = 0;
+        if (item.Kind == ItemKind.Separator)
+        {
+            at = DockOrdering.SeparatorInsertionSlot(Settings.Items, at ?? Settings.Items.Count);
+            if (!at.HasValue) return;
+        }
         if (special is "start" or "search" or "taskview" or "downloads" or "recyclebin") pendingModuleBounces.Add(item.Id);
         if (item.Kind is ItemKind.Search or ItemKind.TaskView) ModulePlacement.Pin(Settings.Items, item);
         else if (at.HasValue) Settings.Items.Insert(Math.Clamp(at.Value, 0, Settings.Items.Count), item); else Settings.Items.Add(item);
@@ -783,9 +788,10 @@ internal sealed partial class DockWindow : Window
                 if (runningIndicators.TryGetValue(button, out var indicator))
                 {
                     bool selected = entry.Windows.Any(w => w.Handle == active);
-                    int activeLength = Settings.WindowsTaskbarHighlights ? 14 : 16;
+                    int length = Settings.ItemIndicatorShape != ItemIndicatorShape.Pill ? 4
+                        : selected ? (Settings.WindowsTaskbarHighlights ? 14 : 16) : 6;
                     bool rotated = Vertical && !Settings.ForceIndicatorsToItemBase;
-                    SetIndicatorSize(indicator, rotated ? 3 : selected ? activeLength : 6, rotated ? selected ? activeLength : 6 : 3);
+                    SetIndicatorSize(indicator, rotated ? ItemIndicatorThickness : length, rotated ? length : ItemIndicatorThickness);
                     bool accent = Settings.IndicatorAccent == IndicatorAccentMode.All || (selected && Settings.IndicatorAccent == IndicatorAccentMode.Focused);
                     indicator.ClearValue(Border.BackgroundProperty);
                     indicator.Style = (Style)Application.Current.Resources[accent ? "DockAccentIndicatorStyle" : "DockNeutralIndicatorStyle"];
@@ -823,6 +829,18 @@ internal sealed partial class DockWindow : Window
         }
     }
     private readonly Dictionary<Button, Border> downloadIndicators = [];
+    private bool UseSquareIndicators => !Settings.RoundedCorners && Settings.SquareGroupIndicatorsWhenUnrounded;
+    private int ItemIndicatorThickness => Settings.ItemIndicatorShape == ItemIndicatorShape.Pill ? 3 : 4;
+    private CornerRadius ItemIndicatorRadius => new(UseSquareIndicators ? 0 : ItemIndicatorThickness / 2d);
+
+    private void ConfigureCircleIndicatorRendering(Border indicator)
+    {
+        if (Settings.ItemIndicatorShape != ItemIndicatorShape.Circle) return;
+        indicator.UseLayoutRounding = true;
+        var visual = Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(indicator);
+        visual.IsPixelSnappingEnabled = true;
+        visual.BorderMode = Microsoft.UI.Composition.CompositionBorderMode.Hard;
+    }
     private void AddButton(DockEntry entry)
     {
         if (entry.Item.Kind == ItemKind.Separator) { AddPermanentSeparator(entry); return; }
@@ -885,7 +903,8 @@ internal sealed partial class DockWindow : Window
         {
             var downloadIndicator = new Border
             {
-                Width = Math.Max(16, DisplayIconSize * .6), Height = 3, CornerRadius = new CornerRadius(1.5),
+                Width = Settings.ItemIndicatorShape == ItemIndicatorShape.Pill ? Math.Max(16, DisplayIconSize * .6) : 4,
+                Height = ItemIndicatorThickness, CornerRadius = ItemIndicatorRadius,
                 Background = new SolidColorBrush(entry.Item.CapturePin switch
                 {
                     CapturePinKind.Screenshot => Windows.UI.Color.FromArgb(255, 0x23, 0xA5, 0xE4),
@@ -898,20 +917,23 @@ internal sealed partial class DockWindow : Window
             };
             downloadIndicators[button] = downloadIndicator;
             content.Children.Add(downloadIndicator);
+            ConfigureCircleIndicatorRendering(downloadIndicator);
         }
         if (entry.IsPinned && entry.Window != null)
         {
             bool rotatedIndicator = Vertical && !Settings.ForceIndicatorsToItemBase;
-            var dot = new Border { Width = rotatedIndicator ? 3 : 6, Height = rotatedIndicator ? 6 : 3, CornerRadius = new CornerRadius(1.5), Background = (Brush)Application.Current.Resources["SystemControlHighlightAccentBrush"], HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Bottom, IsHitTestVisible = false };
+            int length = Settings.ItemIndicatorShape == ItemIndicatorShape.Pill ? 6 : 4;
+            var dot = new Border { Width = rotatedIndicator ? ItemIndicatorThickness : length, Height = rotatedIndicator ? length : ItemIndicatorThickness, CornerRadius = ItemIndicatorRadius, Background = (Brush)Application.Current.Resources["SystemControlHighlightAccentBrush"], HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Bottom, IsHitTestVisible = false };
             PositionIndicator(dot);
             runningIndicators[button] = dot;
             content.Children.Add(dot);
+            ConfigureCircleIndicatorRendering(dot);
         }
         if (entry.Windows.Count > 1)
         {
             string count = entry.Windows.Count > 99 ? "99+" : entry.Windows.Count.ToString();
             double side = Math.Min(DisplayIconSize, Math.Max(14, count.Length * 6 + 4));
-            double radius = !Settings.RoundedCorners && Settings.SquareGroupIndicatorsWhenUnrounded ? 0
+            double radius = UseSquareIndicators ? 0
                 : Settings.GroupIndicatorShape switch { GroupIndicatorShape.Circle => side / 2, GroupIndicatorShape.Squircle => 4, _ => 0 };
             bool right = Settings.GroupIndicatorCorner is GroupIndicatorCorner.TopRight or GroupIndicatorCorner.BottomRight;
             bool bottom = Settings.GroupIndicatorCorner is GroupIndicatorCorner.BottomLeft or GroupIndicatorCorner.BottomRight;

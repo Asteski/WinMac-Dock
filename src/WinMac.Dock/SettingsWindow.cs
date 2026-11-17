@@ -34,13 +34,12 @@ internal sealed partial class SettingsWindow : Window
     private void AddDisplayScopeNote()
     {
         var row = (Grid)panel.Children[^1];
-        row.RowDefinitions.Add(new() { Height = GridLength.Auto });
-        row.RowDefinitions.Add(new() { Height = GridLength.Auto });
-        var note = new TextBlock { Text = DisplayScopeText(), Visibility = MultipleDisplays ? Visibility.Visible : Visibility.Collapsed, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) };
+        var note = new TextBlock { Text = DisplayScopeText(), Visibility = MultipleDisplays ? Visibility.Visible : Visibility.Collapsed, FontSize = 12, TextWrapping = TextWrapping.Wrap };
         void UpdateColor() => note.Foreground = new SolidColorBrush(note.ActualTheme == ElementTheme.Dark
             ? Windows.UI.Color.FromArgb(255, 96, 175, 255) : Windows.UI.Color.FromArgb(255, 0, 95, 184));
         note.ActualThemeChanged += (_, _) => UpdateColor(); UpdateColor();
-        Grid.SetRow(note, 1); Grid.SetColumnSpan(note, 2); row.Children.Add(note);
+        AddSettingDescription(row, note);
+        note.Opacity = 1;
         displayScopeNotes.Add(note);
     }
     private void UpdateSettingsTitle()
@@ -66,32 +65,40 @@ internal sealed partial class SettingsWindow : Window
     }
     private void AddAppearanceColor(string label, string current, Action<string> changed)
     {
-        var input = new TextBox { Header = label, Text = current, PlaceholderText = "Automatic (or #RRGGBB)", MaxLength = 7 };
+        var input = new TextBox { Text = current, PlaceholderText = "Automatic (or #RRGGBB)", MaxLength = 7 };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(input, label);
         var picker = new ColorPicker { IsAlphaEnabled = false, IsAlphaSliderVisible = false, IsAlphaTextInputVisible = false,
             Color = AppearanceColor.Resolve(current, Microsoft.UI.Colors.Gray, 100) };
-        var choose = new Button { Content = "Choose color", Flyout = new Flyout { Content = picker }, VerticalAlignment = VerticalAlignment.Bottom };
+        var choose = new Button { Content = "Choose colour", Flyout = new Flyout { Content = picker }, VerticalAlignment = VerticalAlignment.Center };
         picker.ColorChanged += (_, e) =>
         {
             string value = $"#{e.NewColor.R:X2}{e.NewColor.G:X2}{e.NewColor.B:X2}";
             input.Text = value; changed(value); PreviewSettings();
         };
-        var reset = new Button { Content = "Automatic", VerticalAlignment = VerticalAlignment.Bottom };
+        var reset = new Button { Content = "Automatic", VerticalAlignment = VerticalAlignment.Center };
         reset.Click += (_, _) => { input.Text = ""; changed(""); PreviewSettings(); };
         input.LostFocus += (_, _) =>
         {
             string value = input.Text.Trim();
             if (value.Length != 0 && !(value.Length == 7 && value[0] == '#' && value.Skip(1).All(Uri.IsHexDigit)))
             {
-                input.Header = label + " — enter #RRGGBB or leave blank";
+                ToolTipService.SetToolTip(input, "Enter #RRGGBB or leave blank for Automatic.");
                 return;
             }
-            input.Header = label; changed(value.ToUpperInvariant()); PreviewSettings();
+            ToolTipService.SetToolTip(input, null);
+            changed(value.ToUpperInvariant()); PreviewSettings();
         };
-        var row = new Grid { ColumnSpacing = 8, Tag = label };
-        row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
-        row.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
-        row.Children.Add(input); Grid.SetColumn(choose, 1); row.Children.Add(choose); Grid.SetColumn(reset, 2); row.Children.Add(reset);
-        panel.Children.Add(row);
+        var buttons = new Grid { ColumnSpacing = 8 };
+        buttons.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+        buttons.ColumnDefinitions.Add(new() { Width = new GridLength(88) });
+        choose.HorizontalAlignment = reset.HorizontalAlignment = HorizontalAlignment.Stretch;
+        Grid.SetColumn(reset, 1);
+        buttons.Children.Add(choose);
+        buttons.Children.Add(reset);
+        var controls = new StackPanel { Width = 220, Spacing = 4 };
+        controls.Children.Add(input);
+        controls.Children.Add(buttons);
+        panel.Children.Add(SettingRow(label, controls));
     }
     private string appliedSettings = "";
     private readonly Button apply = new() { Content = "Apply", Width = 84, IsEnabled = false };
@@ -114,19 +121,31 @@ internal sealed partial class SettingsWindow : Window
     {
         this.dock = dock;
         placementDisplay = displayIdentity ?? dock.DisplayIdentity; IconResources.SetWindowIcon(this); AppWindow.TitleBar.IconShowOptions = Microsoft.UI.Windowing.IconShowOptions.ShowIconAndSystemMenu; Title = "WinMac Dock Settings"; SystemBackdrop = new MicaBackdrop(); SizeForCurrentMonitor();
+        const double expandedPaneWidth = 1007;
+        var windowHandle = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        uint startupDpi = Native.GetDpiForWindow(windowHandle);
+        double startupWidth = Native.ClientBounds(windowHandle).Width * 96d / (startupDpi == 0 ? 96 : startupDpi);
+        bool startExpanded = startupWidth >= expandedPaneWidth;
         var nav = settingsNavigation = new NavigationView
         {
-            PaneDisplayMode = NavigationViewPaneDisplayMode.Auto,
-            CompactModeThresholdWidth = 1007,
-            ExpandedModeThresholdWidth = 1007,
+            PaneDisplayMode = startExpanded ? NavigationViewPaneDisplayMode.Left : NavigationViewPaneDisplayMode.LeftMinimal,
             IsTitleBarAutoPaddingEnabled = false,
-            IsPaneOpen = true,
+            IsPaneOpen = startExpanded,
             IsPaneToggleButtonVisible = false,
             IsBackButtonVisible = NavigationViewBackButtonVisible.Collapsed,
             IsSettingsVisible = false,
             AlwaysShowHeader = false,
             OpenPaneLength = 190,
             Content = content
+        };
+        nav.SizeChanged += (_, e) =>
+        {
+            if (e.NewSize.Width <= 0) return;
+            bool expanded = e.NewSize.Width >= expandedPaneWidth;
+            var mode = expanded ? NavigationViewPaneDisplayMode.Left : NavigationViewPaneDisplayMode.LeftMinimal;
+            if (nav.PaneDisplayMode == mode) return;
+            nav.PaneDisplayMode = mode;
+            nav.IsPaneOpen = expanded;
         };
         var transparent = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
         nav.Resources["NavigationViewContentBackground"] = transparent;
@@ -310,10 +329,9 @@ internal sealed partial class SettingsWindow : Window
         AddToggle("Show tray icon", dock.Settings.ShowTrayIcon, value => { dock.Settings.ShowTrayIcon = value; PreviewSettings(); });
         AddToggle("Use monochrome tray icon", dock.Settings.UseMonochromeTrayIcon, value => { dock.Settings.UseMonochromeTrayIcon = value; PreviewSettings(); });
         AddToggle("Toggle dock visibility with a single click", !dock.Settings.TraySingleClickOpensSettings, value => { dock.Settings.TraySingleClickOpensSettings = !value; PreviewSettings(); });
-        panel.Children.Add(new TextBlock
+        AddSettingDescription((Grid)panel.Children[^1], new TextBlock
         {
-            Text = "When enabled, double-click the tray icon to open Settings.",
-            TextWrapping = TextWrapping.Wrap, Opacity = .65, FontSize = 12
+            Text = "When enabled, double-click the tray icon to open Settings."
         });
         var theme = AddRow("Appearance", new ComboBox { ItemsSource = new[] { "Windows default", "Light", "Dark" }, SelectedIndex = (int)dock.Settings.Theme });
         theme.SelectionChanged += (_, _) => { if (theme.SelectedIndex >= 0) { dock.Settings.Theme = (DockTheme)theme.SelectedIndex; chrome.Root.RequestedTheme = dock.Settings.Theme switch { DockTheme.Light => ElementTheme.Light, DockTheme.Dark => ElementTheme.Dark, _ => ElementTheme.Default }; PreviewSettings(); } };
@@ -321,12 +339,12 @@ internal sealed partial class SettingsWindow : Window
         AddIconSizeSlider();
         var customFlyoutSize = AddToggle("Custom folder flyout icon size", dock.Settings.CustomFolderFlyoutIconSize,
             value => { dock.Settings.CustomFolderFlyoutIconSize = value; PreviewSettings(); });
+        AddSettingDescription((Grid)panel.Children[^1], new TextBlock { Text = "When this is off, folder flyouts use the dock icon size." });
         AddIconSizeSlider(folderFlyout: true);
         var flyoutSizeRow = panel.Children[^1];
         void UpdateFlyoutSizeVisibility() => flyoutSizeRow.Visibility = customFlyoutSize.IsOn ? Visibility.Visible : Visibility.Collapsed;
         customFlyoutSize.Toggled += (_, _) => UpdateFlyoutSizeVisibility();
         UpdateFlyoutSizeVisibility();
-        panel.Children.Add(new TextBlock { Tag = "Custom folder flyout icon size", Text = "When this is off, folder flyouts use the dock icon size.", TextWrapping = TextWrapping.Wrap, Opacity = .65, FontSize = 12 });
         var edge = AddRow("Dock position", new ComboBox { ItemsSource = DockWindow.PositionChoices.Select(edge => edge.ToString()).ToArray(), SelectedIndex = Array.IndexOf(DockWindow.PositionChoices, Placement.Edge) });
         AddDisplayScopeNote();
         dockPosition = edge;
@@ -339,65 +357,65 @@ internal sealed partial class SettingsWindow : Window
         panel.Children.Add(new TextBlock { Text = "Inner dock margins (physical pixels)", FontSize = 20, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
         AddMarginControls();
         AddSlider("Space between icons", dock.Settings.IconSpacing, value => { dock.SetIconSpacing(value, persist: false); UpdateApplyState(); }, minimum: -16);
-        panel.Children.Add(new TextBlock { Text = "Negative values tighten adjacent icons and narrow their highlights to prevent overlap. Space beside separators stays at its zero-spacing size.", TextWrapping = TextWrapping.Wrap, Opacity = .65, FontSize = 12 });
+        AddSettingDescription((Grid)panel.Children[^1], new TextBlock { Text = "Negative values tighten adjacent icons and narrow their highlights to prevent overlap. Space beside separators stays at its zero-spacing size." });
         AddToggle("Activate dock through screen-edge gap", dock.Settings.ActivateThroughScreenEdgeGap, value => { dock.Settings.ActivateThroughScreenEdgeGap = value; PreviewSettings(); });
         AddSlider("Gap from screen edge", dock.Settings.FloatingGap, value => { dock.Settings.FloatingGap = value; PreviewSettings(); });
-        AddToggle("Show border around dock", dock.Settings.ShowDockBorder, value => { dock.Settings.ShowDockBorder = value; PreviewSettings(); });
-        AddAppearanceColor("Dock border color", dock.Settings.DockBorderColor, value => dock.Settings.DockBorderColor = value);
-        AddPercentSlider("Dock border opacity", dock.Settings.DockBorderOpacity, value => { dock.Settings.DockBorderOpacity = value; PreviewSettings(); });
         AddToggle("Enable rounded corners", dock.Settings.RoundedCorners, value => { dock.Settings.RoundedCorners = value; PreviewSettings(); });
+        AddToggle("Show border around dock", dock.Settings.ShowDockBorder, value => { dock.Settings.ShowDockBorder = value; PreviewSettings(); });
+        AddAppearanceColor("Dock border colour", dock.Settings.DockBorderColor, value => dock.Settings.DockBorderColor = value);
+        AddPercentSlider("Dock border opacity", dock.Settings.DockBorderOpacity, value => { dock.Settings.DockBorderOpacity = value; PreviewSettings(); });
         var spanFullWidth = AddToggle("Span the full screen edge", dock.Settings.SpanFullWidth, value => { dock.Settings.SpanFullWidth = value; PreviewSettings(); });
         var spanOnlyMaximized = AddToggle("Span only for maximized windows or full edge coverage", dock.Settings.SpanFullWidthOnlyWhenMaximized, value => { dock.Settings.SpanFullWidthOnlyWhenMaximized = value; PreviewSettings(); });
-        panel.Children.Add(new TextBlock { Tag = "Span only for maximized windows or full edge coverage", Text = "Spans when a window is maximized or when windows together cover the dock edge.", TextWrapping = TextWrapping.Wrap, Opacity = .65, FontSize = 12 });
+        AddSettingDescription((Grid)panel.Children[^1], new TextBlock { Text = "Spans when a window is maximized or when windows together cover the dock edge." });
         var squareWhenSpanning = AddToggle("Disable rounded corners while spanning", dock.Settings.SquareCornersWhenSpanning, value => { dock.Settings.SquareCornersWhenSpanning = value; PreviewSettings(); });
         spanOnlyMaximized.IsEnabled = spanFullWidth.IsOn;
         squareWhenSpanning.IsEnabled = spanFullWidth.IsOn && dock.Settings.RoundedCorners;
         spanFullWidth.Toggled += (_, _) => { spanOnlyMaximized.IsEnabled = spanFullWidth.IsOn; squareWhenSpanning.IsEnabled = spanFullWidth.IsOn && dock.Settings.RoundedCorners; };
-        var groupCorner = AddRow("Group indicator corner", new ComboBox { ItemsSource = new[] { "Top right", "Top left", "Bottom right", "Bottom left" }, SelectedIndex = (int)dock.Settings.GroupIndicatorCorner });
-        groupCorner.SelectionChanged += (_, _) => { if (groupCorner.SelectedIndex >= 0) { dock.Settings.GroupIndicatorCorner = (GroupIndicatorCorner)groupCorner.SelectedIndex; PreviewSettings(); } };
-        var groupShape = AddRow("Group indicator shape", new ComboBox { ItemsSource = new[] { "Circle", "Square", "Squircle (4px corners)" }, SelectedIndex = (int)dock.Settings.GroupIndicatorShape });
-        groupShape.SelectionChanged += (_, _) => { if (groupShape.SelectedIndex >= 0) { dock.Settings.GroupIndicatorShape = (GroupIndicatorShape)groupShape.SelectedIndex; PreviewSettings(); } };
-        AddToggle("Use square group indicators when rounded corners are off", dock.Settings.SquareGroupIndicatorsWhenUnrounded, value => { dock.Settings.SquareGroupIndicatorsWhenUnrounded = value; PreviewSettings(); });
         AddToggle("Show icon highlights", dock.Settings.ShowIconHighlights, value => { dock.Settings.ShowIconHighlights = value; PreviewSettings(); });
         AddToggle("Animate folder flyout closing", dock.Settings.AnimateFolderFlyoutClosing, value => { dock.Settings.AnimateFolderFlyoutClosing = value; PreviewSettings(); });
-        var highlightMode = AddRow("Icon highlight style", new ComboBox { ItemsSource = new[] { "Background", "Border", "Background + border" }, SelectedIndex = (int)dock.Settings.HighlightMode });
-        highlightMode.SelectionChanged += (_, _) => { if (highlightMode.SelectedIndex >= 0) { dock.Settings.HighlightMode = (DockHighlightMode)highlightMode.SelectedIndex; PreviewSettings(); } };
-        var indicatorAccent = AddRow("Accent color for running indicators", new ComboBox { ItemsSource = new[] { "Off", "Focused application", "All running applications" }, SelectedIndex = (int)dock.Settings.IndicatorAccent });
-        indicatorAccent.SelectionChanged += (_, _) => { if (indicatorAccent.SelectedIndex >= 0) { dock.Settings.IndicatorAccent = (IndicatorAccentMode)indicatorAccent.SelectedIndex; PreviewSettings(); } };
-
-        AddPercentSlider("Running indicator position", dock.Settings.IndicatorPosition, value => { dock.Settings.IndicatorPosition = value; PreviewSettings(); });
-        AddAppearanceColor("Item indicator color", dock.Settings.ItemIndicatorColor, value => dock.Settings.ItemIndicatorColor = value);
+        var itemShape = AddRow("Item indicator shape", new ComboBox { ItemsSource = new[] { "Pill", "Circle" }, SelectedIndex = (int)dock.Settings.ItemIndicatorShape });
+        itemShape.SelectionChanged += (_, _) => { if (itemShape.SelectedIndex >= 0) { dock.Settings.ItemIndicatorShape = (ItemIndicatorShape)itemShape.SelectedIndex; PreviewSettings(); } };
+        AddPercentSlider("Item indicator position", dock.Settings.IndicatorPosition, value => { dock.Settings.IndicatorPosition = value; PreviewSettings(); });
+        AddSettingDescription((Grid)panel.Children[^1], new TextBlock { Text = "0% places the indicator at the dock edge; 100% moves it nearest the icon." });
         AddPercentSlider("Item indicator opacity", dock.Settings.ItemIndicatorOpacity, value => { dock.Settings.ItemIndicatorOpacity = value; PreviewSettings(); });
-        panel.Children.Add(new TextBlock { Text = "0% places the indicator at the dock edge; 100% moves it nearest the icon.", TextWrapping = TextWrapping.Wrap, Opacity = .65, FontSize = 12 });
-        AddToggle("Keep indicators at the icon base", dock.Settings.ForceIndicatorsToItemBase, value => { dock.Settings.ForceIndicatorsToItemBase = value; PreviewSettings(); });
+        AddAppearanceColor("Item indicator colour", dock.Settings.ItemIndicatorColor, value => dock.Settings.ItemIndicatorColor = value);
+        var indicatorAccent = AddRow("Item indicator accent colour", new ComboBox { ItemsSource = new[] { "Off", "Focused application", "All running applications" }, SelectedIndex = (int)dock.Settings.IndicatorAccent });
+        indicatorAccent.SelectionChanged += (_, _) => { if (indicatorAccent.SelectedIndex >= 0) { dock.Settings.IndicatorAccent = (IndicatorAccentMode)indicatorAccent.SelectedIndex; PreviewSettings(); } };
+        var groupShape = AddRow("Group indicator shape", new ComboBox { ItemsSource = new[] { "Circle", "Squircle" }, SelectedIndex = dock.Settings.GroupIndicatorShape == GroupIndicatorShape.Circle ? 0 : 1 });
+        groupShape.SelectionChanged += (_, _) => { if (groupShape.SelectedIndex >= 0) { dock.Settings.GroupIndicatorShape = groupShape.SelectedIndex == 0 ? GroupIndicatorShape.Circle : GroupIndicatorShape.Squircle; PreviewSettings(); } };
+        var groupCorner = AddRow("Group indicator position", new ComboBox { ItemsSource = new[] { "Top right", "Top left", "Bottom right", "Bottom left" }, SelectedIndex = (int)dock.Settings.GroupIndicatorCorner });
+        groupCorner.SelectionChanged += (_, _) => { if (groupCorner.SelectedIndex >= 0) { dock.Settings.GroupIndicatorCorner = (GroupIndicatorCorner)groupCorner.SelectedIndex; PreviewSettings(); } };
+        AddToggle("Keep indicators at icon base", dock.Settings.ForceIndicatorsToItemBase, value => { dock.Settings.ForceIndicatorsToItemBase = value; PreviewSettings(); });
+        AddToggle("Square indicators with square corners", dock.Settings.SquareGroupIndicatorsWhenUnrounded, value => { dock.Settings.SquareGroupIndicatorsWhenUnrounded = value; PreviewSettings(); });
         var minimizedOnly = AddToggle("Show minimized applications only", dock.Settings.ShowMinimizedApplicationsOnly, value => { dock.Settings.ShowMinimizedApplicationsOnly = value; PreviewSettings(); });
-        panel.Children.Add(new TextBlock { Tag = "Show minimized applications only", Text = "Unpinned windows appear in the dock only while minimized. When Windows allows it, minimized windows are removed from the taskbar until restored. Pinned launchers remain visible. Requires Minimize to dock.", TextWrapping = TextWrapping.Wrap, Opacity = .65, FontSize = 12 });
+        AddSettingDescription((Grid)panel.Children[^1], new TextBlock { Text = "Unpinned windows appear in the dock only while minimized. When Windows allows it, minimized windows are removed from the taskbar until restored. Pinned launchers remain visible. Requires Minimize to dock." });
         minimizedOnly.IsEnabled = dock.Settings.RedirectWindowAnimations;
         AddToggle("Minimize to dock", dock.Settings.RedirectWindowAnimations, value => { dock.Settings.RedirectWindowAnimations = value; minimizedOnly.IsEnabled = value; PreviewSettings(); });
-        panel.Children.Add(new TextBlock { Tag = "Minimize to dock", Text = "When a matching dock icon is available, windows minimize toward it and restore from it. Windows controls the animation style.", TextWrapping = TextWrapping.Wrap, Opacity = .65, FontSize = 12 });
+        AddSettingDescription((Grid)panel.Children[^1], new TextBlock { Text = "When a matching dock icon is available, windows minimize toward it and restore from it. Windows controls the animation style." });
         var modes = new[] { "Always visible", "Hide after delay", "Hide for maximized applications", "Hide when active window overlaps", "Toggle at screen edge" };
         var mode = AddRow("Dock visibility", new ComboBox { ItemsSource = modes, SelectedIndex = (int)LayoutHideMode });
         AddDisplayScopeNote();
-        panel.Children.Add(new TextBlock { Tag = "Dock visibility", Text = "When the dock and Windows taskbar share a screen edge, edge toggling is unavailable. Use the dock shortcut or tray icon to show or hide the dock.", TextWrapping = TextWrapping.Wrap, Opacity = .65, FontSize = 12 });
+        var visibilityRow = (Grid)panel.Children[^1];
+        AddSettingDescription(visibilityRow, new TextBlock { Text = "When the dock and Windows taskbar share a screen edge, edge toggling is unavailable. Use the dock shortcut or tray icon to show or hide the dock." });
         AddToggle("Hide Windows taskbar", dock.Settings.HideWindowsTaskbar, value => { dock.Settings.HideWindowsTaskbar = value; PreviewSettings(); });
         taskbarStatus = new TextBlock { Tag = "Hide Windows taskbar", TextWrapping = TextWrapping.Wrap, Opacity = .65, FontSize = 12 };
         SyncTaskbarStatus(null);
-        panel.Children.Add(taskbarStatus);
+        AddSettingDescription((Grid)panel.Children[^1], taskbarStatus);
         var startHidden = AddToggle("Start dock hidden", dock.Settings.StartHidden, value => { dock.Settings.StartHidden = value; UpdateApplyState(); });
         var reserve = AddToggle("Reserve space for the dock", dock.Settings.ReserveSpace, value => { dock.Settings.ReserveSpace = value; PreviewSettings(); });
         void RefreshVisibilityOptions() { startHidden.IsEnabled = LayoutHideMode != HideMode.AlwaysVisible; reserve.IsEnabled = LayoutHideMode is HideMode.AlwaysVisible or HideMode.Maximized; }
         mode.SelectionChanged += (_, _) => { if (mode.SelectedIndex < 0) return; LayoutHideMode = (HideMode)mode.SelectedIndex; RefreshVisibilityOptions(); PreviewSettings(); };
         RefreshVisibilityOptions();
-        panel.Children.Add(new TextBlock { Text = "Delay, overlap and edge-toggle modes use an overlay without reserved space. Hide for maximized applications keeps its reservation while hidden if Reserve space for the dock is on.", TextWrapping = TextWrapping.Wrap, Opacity = .65, FontSize = 12 });
+        AddSettingDescription(visibilityRow, new TextBlock { Text = "Delay, overlap and edge-toggle modes use an overlay without reserved space. Hide for maximized applications keeps its reservation while hidden if Reserve space for the dock is on." });
         AddToggle("Disable app attention animations", dock.Settings.PreventAttentionBlinking, value => { dock.Settings.PreventAttentionBlinking = value; PreviewSettings(); });
         var attentionAnimation = AddRow("App attention animation", new ComboBox { ItemsSource = new[] { "Blink", "Bounce" }, SelectedIndex = (int)dock.Settings.AttentionAnimation });
         attentionAnimation.SelectionChanged += (_, _) => { if (attentionAnimation.SelectedIndex >= 0) { dock.Settings.AttentionAnimation = (AttentionAnimation)attentionAnimation.SelectedIndex; PreviewSettings(); } };
         AddToggle("Keep dock visible when peeking at the desktop", dock.Settings.KeepVisibleOnDesktop, value => { dock.Settings.KeepVisibleOnDesktop = value; PreviewSettings(); });
         AddToggle("Show dock when an app needs attention", dock.Settings.ShowDockForAttention, value => { dock.Settings.ShowDockForAttention = value; PreviewSettings(); });
-        panel.Children.Add(new TextBlock { Tag = "Show dock when an app needs attention", Text = "Shows the dock until you focus the requesting window or it closes. A bounce already in progress can finish. Fullscreen hiding and Task View visibility can still take priority.", TextWrapping = TextWrapping.Wrap, Opacity = .65, FontSize = 12 });
+        AddSettingDescription((Grid)panel.Children[^1], new TextBlock { Text = "Shows the dock until you focus the requesting window or it closes. A bounce already in progress can finish. Fullscreen hiding and Task View visibility can still take priority." });
         var reveal = AddRow("Mouse reveal behaviour", new ComboBox { ItemsSource = new[] { "Temporary overlay", "Restore dock reservation", "Disabled" }, SelectedIndex = (int)dock.Settings.ManualRevealBehavior });
         reveal.SelectionChanged += (_, _) => { if (reveal.SelectedIndex >= 0) { dock.Settings.ManualRevealBehavior = (ManualRevealBehavior)reveal.SelectedIndex; PreviewSettings(); } };
-        panel.Children.Add(new TextBlock { Text = "When disabled, moving the mouse to the screen edge does not reveal a manually hidden dock. The temporary overlay hides after the pointer leaves and the overlay hide delay elapses. Restore dock reservation requires Always visible mode and Reserve space for the dock to be on. Showing the dock with the keyboard shortcut restores reserved space when the mode supports it and Reserve space for the dock is on.", Tag = "Mouse reveal behaviour", TextWrapping = TextWrapping.Wrap, Opacity = .65, FontSize = 12 });
+        AddSettingDescription((Grid)panel.Children[^1], new TextBlock { Text = "When disabled, moving the mouse to the screen edge does not reveal a manually hidden dock. The temporary overlay hides after the pointer leaves and the overlay hide delay elapses. Restore dock reservation requires Always visible mode and Reserve space for the dock to be on. Showing the dock with the keyboard shortcut restores reserved space when the mode supports it and Reserve space for the dock is on." });
         AddNumber("Temporary overlay hide delay (ms)", dock.Settings.ManualOverlayHideDelayMs, 0, 5000, value => { dock.Settings.ManualOverlayHideDelayMs = value; PreviewSettings(); });
         AddToggle("Use the entire screen edge to reveal or hide the dock", dock.Settings.FullScreenEdgeTrigger, value => { dock.Settings.FullScreenEdgeTrigger = value; PreviewSettings(); });
         AddToggle("Hide immediately for fullscreen applications", dock.Settings.HideImmediatelyForFullscreen, value => { dock.Settings.HideImmediatelyForFullscreen = value; PreviewSettings(); });
@@ -417,7 +435,7 @@ internal sealed partial class SettingsWindow : Window
             ShowSettings();
         };
         AddToggle("Hold Shift to drag items outside the dock", dock.Settings.RequireShiftToDragRemove, value => { dock.Settings.RequireShiftToDragRemove = value; PreviewSettings(); });
-        panel.Children.Add(new TextBlock { Tag = "Hold Shift to drag items outside", Text = "When icon positions are locked, hold Alt to drag an item out of the dock.", TextWrapping = TextWrapping.Wrap, Opacity = .65, FontSize = 12 });
+        AddSettingDescription((Grid)panel.Children[^1], new TextBlock { Text = "When icon positions are locked, hold Alt to drag an item out of the dock." });
         AddToggle("Group windows of the same application", dock.Settings.GroupWindows, value => { dock.Settings.GroupWindows = value; PreviewSettings(); });
         var windowThumbnails = AddToggle("Show window thumbnails", dock.Settings.ShowUngroupedWindowThumbnails, value => { dock.Settings.ShowUngroupedWindowThumbnails = value; PreviewSettings(); });
         var thumbnailCorners = AddRow("Window thumbnail corners", new ComboBox
@@ -441,7 +459,7 @@ internal sealed partial class SettingsWindow : Window
             explorerBadge.IsEnabled = windowThumbnails.IsOn;
         };
         AddToggle("Combine dock icons with running applications", dock.Settings.CombinePinnedIconsWithRunningApplications, value => { dock.Settings.CombinePinnedIconsWithRunningApplications = value; PreviewSettings(); });
-        panel.Children.Add(new TextBlock { Tag = "Combine dock icons with running applications", Text = "When Combine pinned and running apps is off, pinned icons remain launchers and open windows appear in the running section.", TextWrapping = TextWrapping.Wrap, Opacity = .65, FontSize = 12 });
+        AddSettingDescription((Grid)panel.Children[^1], new TextBlock { Text = "When Combine pinned and running apps is off, pinned icons remain launchers and open windows appear in the running section." });
         var groupedClick = AddRow("When clicking an app with multiple windows", new ComboBox { ItemsSource = new[] { "Show window list", "Activate last used window", "Cycle windows" }, SelectedIndex = (int)dock.Settings.GroupedClickBehavior });
         groupedClick.SelectionChanged += (_, _) => { if (groupedClick.SelectedIndex >= 0) { dock.Settings.GroupedClickBehavior = (GroupedClickBehavior)groupedClick.SelectedIndex; PreviewSettings(); } };
         AddToggle("Show items from all virtual desktops", dock.Settings.ShowItemsFromAllVirtualDesktops, value => { dock.Settings.ShowItemsFromAllVirtualDesktops = value; PreviewSettings(); });
@@ -455,18 +473,20 @@ internal sealed partial class SettingsWindow : Window
             : (Microsoft.UI.Xaml.Documents.Run)Microsoft.UI.Xaml.Markup.XamlReader.Load("<Run xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' Foreground='{ThemeResource " + bridgeStatus.ColorResource + "}'/>");
         statusRun.Text = bridgeStatus.Text;
         bridgeHint.Inlines.Add(statusRun);
-        panel.Children.Add(bridgeHint);
+        AddSettingDescription((Grid)panel.Children[^1], bridgeHint);
         AddToggle("Show icon labels", dock.Settings.ShowIconLabels, value => { dock.Settings.ShowIconLabels = value; PreviewSettings(); });
         AddToggle("Show file extensions", dock.Settings.ShowFileExtensionsInTooltips, value => { dock.Settings.ShowFileExtensionsInTooltips = value; PreviewSettings(); });
-        panel.Children.Add(new TextBlock { Tag = "Show file extensions", Text = "Shows file extensions in dock file tooltips and folder flyouts.", TextWrapping = TextWrapping.Wrap, Opacity = .65, FontSize = 12 });
+        AddSettingDescription((Grid)panel.Children[^1], new TextBlock { Text = "Shows file extensions in dock file tooltips and folder flyouts." });
+        var highlightMode = AddRow("Icon highlight style", new ComboBox { ItemsSource = new[] { "Background", "Border", "Background + border" }, SelectedIndex = (int)dock.Settings.HighlightMode });
+        highlightMode.SelectionChanged += (_, _) => { if (highlightMode.SelectedIndex >= 0) { dock.Settings.HighlightMode = (DockHighlightMode)highlightMode.SelectedIndex; PreviewSettings(); } };
         AddToggle("Show menu icons", dock.Settings.ShowMenuGlyphs, value => { dock.Settings.ShowMenuGlyphs = value; PreviewSettings(); });
         AddPercentSlider("Hover magnification", dock.Settings.HoverMagnificationPercent, value => { dock.Settings.HoverMagnificationPercent = value; PreviewSettings(); });
-        panel.Children.Add(new TextBlock { Text = "Hover magnification grows icons toward the desktop and moves neighboring items aside. At 100%, icons can grow to twice their size when space allows. Disabling animations also disables magnification.", TextWrapping = TextWrapping.Wrap, Opacity = .65, FontSize = 12 });
+        AddSettingDescription((Grid)panel.Children[^1], new TextBlock { Text = "Hover magnification grows icons toward the desktop and moves neighboring items aside. At 100%, icons can grow to twice their size when space allows. Disabling animations also disables magnification." });
         AddOddSlider("Magnification span", dock.Settings.MagnificationSpan, value => { dock.Settings.MagnificationSpan = value; PreviewSettings(); });
         AddNumber("Magnification transition (ms)", dock.Settings.MagnificationMs, 0, 1000, value => { dock.Settings.MagnificationMs = value; PreviewSettings(); });
         AddNumber("Dock animation (ms)", dock.Settings.AnimationMs, 0, 1000, value => { dock.Settings.AnimationMs = value; PreviewSettings(); });
         AddNumber("Click animation duration (ms)", dock.Settings.RunningClickAnimationMs, 50, 2000, value => { dock.Settings.RunningClickAnimationMs = value; PreviewSettings(); });
-        panel.Children.Add(new TextBlock { Tag = "Click animation duration", Text = "Controls the click pulse for running apps and the Start button.", TextWrapping = TextWrapping.Wrap, Opacity = .65, FontSize = 12 });
+        AddSettingDescription((Grid)panel.Children[^1], new TextBlock { Text = "Controls the click pulse for running apps and the Start button." });
         AddNumber("Launch and attention bounce duration (ms)", dock.Settings.LaunchBounceMs, 100, 2000, value => { dock.Settings.LaunchBounceMs = value; PreviewSettings(); });
         AddNumber("Automatic hide delay (ms)", dock.Settings.HideDelayMs, 0, 5000, value => { dock.Settings.HideDelayMs = value; PreviewSettings(); });
         AddNumber("Edge reveal delay (ms)", dock.Settings.RevealDelayMs, 0, 2000, value => { dock.Settings.RevealDelayMs = value; PreviewSettings(); });
@@ -482,7 +502,7 @@ internal sealed partial class SettingsWindow : Window
         AddShortcutRow();
         AddToggle("Run at startup", dock.Settings.StartAtLogin, value => { dock.Settings.StartAtLogin = value; PreviewSettings(); });
         AddToggle("Always run as administrator", dock.Settings.AlwaysRunAsAdministrator, value => { dock.Settings.AlwaysRunAsAdministrator = value; PreviewSettings(); });
-        panel.Children.Add(new TextBlock { Text = "Applies after restarting the dock. Windows will ask for permission when elevation is required.", TextWrapping = TextWrapping.Wrap, Opacity = .65, FontSize = 12 });
+        AddSettingDescription((Grid)panel.Children[^1], new TextBlock { Text = "Applies after restarting the dock. Windows will ask for permission when elevation is required." });
         var restartElevated = new Button
         {
             Content = "Restart WinMac Dock as administrator",
@@ -516,7 +536,7 @@ internal sealed partial class SettingsWindow : Window
             ["Appearance"] = "Theme, size, background material, and visual indicators.",
             ["Positioning"] = "Where the dock appears and how it fits the display.",
             ["Visibility"] = "Visibility, windows, and workspace behaviour.",
-            ["Effects"] = "Dock borders, corners, and visual styling.",
+            ["Effects"] = "Control when the dock spans the screen edge.",
             ["Exclusions"] = "Choose which running windows are hidden from the dock.",
             ["Advanced"] = "Motion and interaction tuning."
         };
@@ -531,7 +551,7 @@ internal sealed partial class SettingsWindow : Window
         {
             var key = (category, title);
             if (sections.TryGetValue(key, out var existing)) return existing;
-            var body = new StackPanel { Spacing = 12, Padding = new Thickness(20, 16, 20, 18) };
+            var body = new StackPanel { Padding = new Thickness(20, 0, 20, 0) };
             var card = new Border
             {
                 Background = (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"],
@@ -575,10 +595,9 @@ internal sealed partial class SettingsWindow : Window
             if (text is "Preferred dock icon size" or "Icon size" or "Folder flyout icon size" or "Custom folder flyout icon size" || text == "Show file extensions" || text.Contains("icon label", StringComparison.OrdinalIgnoreCase)) return ("Appearance", "Icons", "Configure icon labels and highlights.");
             if (text.Contains("margin", StringComparison.OrdinalIgnoreCase) || text.Contains("gap", StringComparison.OrdinalIgnoreCase) || text.Contains("Space between", StringComparison.OrdinalIgnoreCase) || text.StartsWith("Negative values", StringComparison.OrdinalIgnoreCase)) return ("Positioning", "Spacing & margins", "Adjust icon spacing, dock gaps, and margins.");
             if (text is "Show icon highlights" or "Icon highlight style") return ("Appearance", "Icons", "Configure icon labels and highlights.");
-            if (text.Contains("Dock border", StringComparison.OrdinalIgnoreCase)) return ("Effects", "Style", "Refine the dock surface and item highlight treatment.");
+            if (text is "Enable rounded corners" or "Show border around dock" or "Dock border colour" or "Dock border opacity") return ("Appearance", "Dock", "Adjust the dock’s corners and border.");
             if (text.Contains("Dock background", StringComparison.OrdinalIgnoreCase) || text.Contains("material", StringComparison.OrdinalIgnoreCase) || text.Contains("opacity", StringComparison.OrdinalIgnoreCase) || text.Contains("tint", StringComparison.OrdinalIgnoreCase)) return ("Appearance", "Theme", "Choose the dock theme, background effect, and transparency.");
-            if (text.Contains("Span the full screen width", StringComparison.OrdinalIgnoreCase) || text.Contains("Span only for maximized windows or full edge coverage", StringComparison.OrdinalIgnoreCase) || text.Contains("while spanning", StringComparison.OrdinalIgnoreCase)) return ("Effects", "Style", "Refine the dock surface and item highlight treatment.");
-            if (text.Contains("highlight", StringComparison.OrdinalIgnoreCase) || text.Contains("rounded", StringComparison.OrdinalIgnoreCase) || text.Contains("border around", StringComparison.OrdinalIgnoreCase)) return ("Effects", "Style", "Refine the dock surface and item highlight treatment.");
+            if (text.Contains("Span the full screen width", StringComparison.OrdinalIgnoreCase) || text.Contains("Span only for maximized windows or full edge coverage", StringComparison.OrdinalIgnoreCase) || text.Contains("while spanning", StringComparison.OrdinalIgnoreCase)) return ("Effects", "Screen-edge spanning", "Choose when the dock fills the screen edge and how its corners look while spanning.");
             if (text == "Appearance") return ("Appearance", "Theme", "Choose the dock theme, background effect, and transparency.");
             if (text.Contains("position", StringComparison.OrdinalIgnoreCase) || text.Contains("alignment", StringComparison.OrdinalIgnoreCase) || text.Contains("margin", StringComparison.OrdinalIgnoreCase) || text.Contains("gap", StringComparison.OrdinalIgnoreCase) || text.Contains("Display", StringComparison.OrdinalIgnoreCase) || text.Contains("Space between", StringComparison.OrdinalIgnoreCase)) return ("Positioning", text.Contains("margin", StringComparison.OrdinalIgnoreCase) ? "Spacing & margins" : "Placement", "Choose the dock edge, alignment, and display.");
             if (text.Contains("fullscreen", StringComparison.OrdinalIgnoreCase) || text.Contains("Visibility", StringComparison.OrdinalIgnoreCase) || text.Contains("hide", StringComparison.OrdinalIgnoreCase) || text.Contains("reveal", StringComparison.OrdinalIgnoreCase) || text.Contains("Task View", StringComparison.OrdinalIgnoreCase) || text.Contains("attention", StringComparison.OrdinalIgnoreCase) || text.Contains("taskbar", StringComparison.OrdinalIgnoreCase)) return ("Visibility", "Dock", "Control when the dock stays visible and how it returns.");
@@ -591,6 +610,8 @@ internal sealed partial class SettingsWindow : Window
         Section("General", "Version & updates", "");
         Section("General", "Startup & tray", "Choose how the dock starts and whether it appears in the notification area.");
         Section("General", "Shortcut", "Choose the keyboard shortcut that shows or hides the dock.");
+        Section("Appearance", "Theme", "Choose the dock theme, background effect, and transparency.");
+        Section("Appearance", "Dock", "Adjust the dock’s corners and border.");
         Section("Visibility", "Dock", "Control when the dock stays visible and how it returns.");
         Section("Visibility", "Mouse reveal", "Choose how the pointer reveals the dock at the screen edge.");
         Section("Visibility", "Windows & tasks", "Choose which window items appear and how they behave.");
@@ -605,11 +626,16 @@ internal sealed partial class SettingsWindow : Window
         {
             var text = (child as FrameworkElement)?.Tag?.ToString() ?? child switch { TextBlock t => t.Text ?? "", ContentControl c => c.Content?.ToString() ?? "", _ => child.GetType().GetProperty("Header")?.GetValue(child)?.ToString() ?? "" };
             if (text == "Inner dock margins (physical pixels)") { category = "Positioning"; section = "Spacing & margins"; description = "Adjust the dock footprint on screen."; continue; }
-            if (child is not Slider || !string.IsNullOrWhiteSpace(text)) (category, section, description) = Classify(text, category, section);
             panel.Children.Remove(child);
+            if (child is not Slider || !string.IsNullOrWhiteSpace(text)) (category, section, description) = Classify(text, category, section);
             var body = Section(category, section, description);
-            if (text == "Icon highlight style") body.Children.Insert(2, child);
-            else body.Children.Add(child);
+            if (child is Grid optionRow)
+            {
+                ApplyCardRowLayout(optionRow, body.Children.Count > 0 && text != "Restart WinMac Dock as administrator");
+            }
+            else if (child is FrameworkElement content)
+                content.Margin = new Thickness(content.Margin.Left, content.Margin.Top + 8, content.Margin.Right, content.Margin.Bottom + 8);
+            body.Children.Add(child);
         }
         AddAutomaticItemOrder(Section("Advanced", "Automatic item order", "Drag groups to change their order after pinned items."));
         var exclusions = Section("Exclusions", "Process exclusion list",
@@ -633,7 +659,10 @@ internal sealed partial class SettingsWindow : Window
                 update(input.Text.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).ToList());
                 PreviewSettings();
             };
-            exclusions.Children.Add(input);
+            var row = new Grid { Tag = label };
+            row.Children.Add(input);
+            ApplyCardRowLayout(row, exclusions.Children.Count > 0);
+            exclusions.Children.Add(row);
         }
         ShowCategory(selectedCategory);
     }
@@ -648,7 +677,7 @@ internal sealed partial class SettingsWindow : Window
             "Appearance" => "Theme, size, background material, and visual indicators.",
             "Positioning" => "Where the dock appears and how it fits the display.",
             "Visibility" => "Visibility, windows, and workspace behaviour.",
-            "Effects" => "Dock borders, corners, and visual styling.",
+            "Effects" => "Control when the dock spans the screen edge.",
             "Exclusions" => "Separate rules with semicolons. Use * for any number of characters and ? for one character.",
             "Modules" => "Customize modules and their behaviour.",
             "Folders" => "Customize pinned folders and their behaviour.",
@@ -671,23 +700,27 @@ internal sealed partial class SettingsWindow : Window
     {
         var modes = new[] { DockMaterial.Default, DockMaterial.None, DockMaterial.Acrylic, DockMaterial.Mica };
         var material = AddRow("Dock background effect", new ComboBox { ItemsSource = new[] { "Default", "None", "Acrylic", "Mica" }, SelectedIndex = Array.IndexOf(modes, dock.Settings.Material) });
+        var help = new TextBlock { Tag = "Dock background effect", TextWrapping = TextWrapping.Wrap, Opacity = .65, FontSize = 12 };
+        var status = new TextBlock { Tag = "Dock background effect", TextWrapping = TextWrapping.Wrap, Opacity = .7, FontSize = 12 };
+        AddSettingDescription((Grid)panel.Children[^1], help);
+        AddSettingDescription((Grid)panel.Children[^1], status);
         var controls = new StackPanel { Spacing = 12 }; panel.Children.Add(controls);
         void Refresh()
         {
             controls.Children.Clear();
+            controls.Visibility = dock.Settings.Material == DockMaterial.Default ? Visibility.Collapsed : Visibility.Visible;
             bool plain = dock.Settings.Material == DockMaterial.None;
 
-            var status = new TextBlock { Text = dock.BackdropStatus, TextWrapping = TextWrapping.Wrap, Opacity = .7, FontSize = 12 };
+            status.Text = dock.BackdropStatus;
             if (dock.Settings.Material == DockMaterial.Default)
             {
-                controls.Children.Add(new TextBlock { Text = "Uses the Windows taskbar-style acrylic preset. Windows controls its colors and transparency.", TextWrapping = TextWrapping.Wrap, Opacity = .65, FontSize = 12 });
-                controls.Children.Add(status);
+                help.Text = "Uses the Windows taskbar-style acrylic preset. Windows controls its colours and transparency.";
                 return;
             }
 
-            var opacityLabel = new TextBlock { Text = $"{(plain ? "Background opacity" : "Color tint strength")}: {dock.Settings.BackgroundStrength}%" };
+            var opacityLabel = new TextBlock { Text = $"{(plain ? "Background opacity" : "Colour tint strength")}: {dock.Settings.BackgroundStrength}%" };
             var opacity = new Slider { Minimum = 0, Maximum = 100, Value = dock.Settings.BackgroundStrength, StepFrequency = 1, IsThumbToolTipEnabled = true, HorizontalAlignment = HorizontalAlignment.Stretch, Foreground = AccentBrush() };
-            opacity.ValueChanged += (_, e) => { if (!double.IsNaN(e.NewValue)) { var value = (int)Math.Round(e.NewValue); opacityLabel.Text = $"{(plain ? "Background opacity" : "Color tint strength")}: {value}%"; dock.Settings.BackgroundStrength = value; PreviewSettings(); status.Text = dock.BackdropStatus; } };
+            opacity.ValueChanged += (_, e) => { if (!double.IsNaN(e.NewValue)) { var value = (int)Math.Round(e.NewValue); opacityLabel.Text = $"{(plain ? "Background opacity" : "Colour tint strength")}: {value}%"; dock.Settings.BackgroundStrength = value; PreviewSettings(); status.Text = dock.BackdropStatus; } };
             if (!plain)
             {
                 var luminosityName = dock.Settings.Material == DockMaterial.Acrylic ? "Background opacity" : "Wallpaper tint opacity";
@@ -697,11 +730,9 @@ internal sealed partial class SettingsWindow : Window
                 controls.Children.Add(luminosityLabel); controls.Children.Add(luminosity);
             }
             controls.Children.Add(opacityLabel); controls.Children.Add(opacity);
-            var hint = plain ? "With Windows transparency effects on and high contrast off, 0% is transparent and 100% is solid. Otherwise the background is solid. No blur is applied."
-                : dock.Settings.Material == DockMaterial.Acrylic ? "Background opacity has the strongest effect on translucency. Color tint strength changes the color balance and can be subtle with a neutral tint. Windows controls the blur radius."
+            help.Text = plain ? "With Windows transparency effects on and high contrast off, 0% is transparent and 100% is solid. Otherwise the background is solid. No blur is applied."
+                : dock.Settings.Material == DockMaterial.Acrylic ? "Background opacity has the strongest effect on translucency. Colour tint strength changes the colour balance and can be subtle with a neutral tint. Windows controls the blur radius."
                 : "Mica uses the desktop wallpaper, not windows behind the dock. Wallpaper tint opacity changes its shading; it does not reveal live windows.";
-            controls.Children.Add(new TextBlock { Text = hint, TextWrapping = TextWrapping.Wrap, Opacity = .65, FontSize = 12 });
-            controls.Children.Add(status);
         }
         material.SelectionChanged += (_, _) => { if (material.SelectedIndex >= 0) { dock.Settings.Material = modes[material.SelectedIndex]; PreviewSettings(); Refresh(); } };
         Refresh();
@@ -726,6 +757,26 @@ internal sealed partial class SettingsWindow : Window
     }
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<FrameworkElement, TextBlock> settingSearchLabels = new();
 
+    private static void ApplyCardRowLayout(Grid row, bool divider)
+    {
+        if (divider)
+        {
+            row.BorderBrush = (Brush)Application.Current.Resources["CardStrokeColorDefaultBrush"];
+            row.BorderThickness = new Thickness(0, 1, 0, 0);
+        }
+        row.Margin = new Thickness(-20, 0, -20, 0);
+        row.Padding = new Thickness(20, 8, 20, 8);
+        row.MinHeight = 0;
+    }
+
+    private static void AddSettingDescription(Grid row, TextBlock description)
+    {
+        description.FontSize = 12;
+        description.Opacity = .68;
+        description.TextWrapping = TextWrapping.Wrap;
+        ((StackPanel)row.Children[0]).Children.Add(description);
+    }
+
     private static Grid SettingRow(string label, FrameworkElement control)
     {
         var row = new Grid { ColumnSpacing = 20, MinHeight = 36, Tag = label };
@@ -735,11 +786,6 @@ internal sealed partial class SettingsWindow : Window
         {
             "Appearance" => "Theme",
             "Preferred dock icon size" => "Icon size",
-            "Group indicator corner" => "Group indicator position",
-            "Accent color for running indicators" => "Indicator accent color",
-            "Running indicator position" => "Indicator position",
-            "Keep indicators at the icon base" => "Keep indicators at icon base",
-            "Use square group indicators when rounded corners are off" => "Square indicators with square corners",
             "Use a keyboard shortcut to show or hide the dock" => "Enable dock shortcut",
             "Hide immediately for fullscreen applications" => "Hide for fullscreen apps",
             "When clicking an app with multiple windows" => "Multi-window click action",
@@ -749,21 +795,27 @@ internal sealed partial class SettingsWindow : Window
             "Show items from all virtual desktops" => "Show windows from all virtual desktops",
             _ => label
         };
-        var text = new TextBlock { Text = caption, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
+        var text = new TextBlock { Text = caption, FontSize = 14, TextWrapping = TextWrapping.Wrap };
+        var labels = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
+        labels.Children.Add(text);
         settingSearchLabels.Add(row, text);
         control.HorizontalAlignment = HorizontalAlignment.Right;
+        control.VerticalAlignment = VerticalAlignment.Center;
         if (control is ToggleSwitch toggle)
         {
             toggle.MinWidth = 0;
+            toggle.MinHeight = 0;
+            toggle.Height = 32;
+            toggle.RenderTransform = new TranslateTransform { Y = -4 };
             toggle.OnContent = "";
             toggle.OffContent = "";
             var state = new TextBlock { Text = toggle.IsOn ? "On" : "Off", VerticalAlignment = VerticalAlignment.Center };
             toggle.Toggled += (_, _) => state.Text = toggle.IsOn ? "On" : "Off";
             toggle.RegisterPropertyChangedCallback(Control.IsEnabledProperty, (_, _) => state.Opacity = toggle.IsEnabled ? 1 : .4);
-            var group = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, HorizontalAlignment = HorizontalAlignment.Right };
+            var group = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
             group.Children.Add(state);
             group.Children.Add(toggle);
-            Grid.SetColumn(text, 0); Grid.SetColumn(group, 1); row.Children.Add(text); row.Children.Add(group);
+            Grid.SetColumn(group, 1); row.Children.Add(labels); row.Children.Add(group);
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(toggle, caption);
             return row;
         }
@@ -773,7 +825,7 @@ internal sealed partial class SettingsWindow : Window
             field.Width = 220;
         }
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(control, caption);
-        Grid.SetColumn(text, 0); Grid.SetColumn(control, 1); row.Children.Add(text); row.Children.Add(control); return row;
+        Grid.SetColumn(control, 1); row.Children.Add(labels); row.Children.Add(control); return row;
     }
     private void AddNumber(string header, int value, int min, int max, Action<int> change)
     {
@@ -872,16 +924,13 @@ internal sealed partial class SettingsWindow : Window
     }
     private void AddShortcutRow()
     {
-        var description = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
-        description.Children.Add(new TextBlock { Text = "Dock activation shortcut", FontSize = 14 });
-        description.Children.Add(new TextBlock { Text = "Customize the shortcut to show or hide the dock.", Opacity = .68, FontSize = 12, TextWrapping = TextWrapping.Wrap });
         var edit = new Button { HorizontalAlignment = HorizontalAlignment.Right, HorizontalContentAlignment = HorizontalAlignment.Right, Padding = new Thickness(10, 6, 10, 6) };
         SetShortcutButtonContent(edit);
         edit.Click += async (_, _) => await EditShortcutAsync(edit);
-        var row = new Grid { ColumnSpacing = 20, MinHeight = 54, Tag = "shortcut" };
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        Grid.SetColumn(description, 0); Grid.SetColumn(edit, 1); row.Children.Add(description); row.Children.Add(edit);
+        var row = SettingRow("Dock activation shortcut", edit);
+        edit.ClearValue(FrameworkElement.WidthProperty);
+        row.Tag = "shortcut";
+        AddSettingDescription(row, new TextBlock { Text = "Customize the shortcut to show or hide the dock." });
         panel.Children.Add(row);
     }
     private void SetShortcutButtonContent(Button button)

@@ -141,18 +141,18 @@ internal sealed partial class SettingsWindow
     {
         public override string ToString() => Kind switch
         {
-            AutomaticItemKind.ExternalDisks => "External Drive",
+            AutomaticItemKind.ExternalDisks => "External Drives",
             AutomaticItemKind.Recordings => "Screen Recordings",
             _ => Kind.ToString()
         };
     }
 
-    private sealed class AutomaticOrderList : ListView
+    private sealed class AutomaticOrderList : GridView
     {
         private static readonly Microsoft.UI.Input.InputSystemCursor hand =
             Microsoft.UI.Input.InputSystemCursor.Create(Microsoft.UI.Input.InputSystemCursorShape.Hand);
         private static readonly Microsoft.UI.Input.InputSystemCursor resize =
-            Microsoft.UI.Input.InputSystemCursor.Create(Microsoft.UI.Input.InputSystemCursorShape.SizeNorthSouth);
+            Microsoft.UI.Input.InputSystemCursor.Create(Microsoft.UI.Input.InputSystemCursorShape.SizeAll);
 
         public AutomaticOrderList()
         {
@@ -178,6 +178,7 @@ internal sealed partial class SettingsWindow
             CanReorderItems = true,
             CanDragItems = true,
             AllowDrop = true,
+            MinHeight = 0,
             SelectionMode = ListViewSelectionMode.Single
         };
         var labelMeasure = new TextBlock();
@@ -189,11 +190,26 @@ internal sealed partial class SettingsWindow
             tileWidth = Math.Max(tileWidth, labelMeasure.DesiredSize.Width);
         }
         string width = Math.Ceiling(tileWidth + 26).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        list.ItemsPanel = (ItemsPanelTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("""
+            <ItemsPanelTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
+                <ItemsWrapGrid Orientation="Horizontal"/>
+            </ItemsPanelTemplate>
+            """);
+        var tileStyle = new Style(typeof(GridViewItem));
+        tileStyle.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(0)));
+        tileStyle.Setters.Add(new Setter(FrameworkElement.MarginProperty, new Thickness(0)));
+        tileStyle.Setters.Add(new Setter(FrameworkElement.MinHeightProperty, 0d));
+        tileStyle.Setters.Add(new Setter(Control.VerticalContentAlignmentProperty, VerticalAlignment.Center));
+        list.ItemContainerStyle = tileStyle;
+        ScrollViewer.SetHorizontalScrollMode(list, ScrollMode.Disabled);
+        ScrollViewer.SetHorizontalScrollBarVisibility(list, ScrollBarVisibility.Disabled);
+        ScrollViewer.SetVerticalScrollMode(list, ScrollMode.Disabled);
+        ScrollViewer.SetVerticalScrollBarVisibility(list, ScrollBarVisibility.Disabled);
         list.ItemTemplate = (DataTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load($$"""
             <DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
                 <Border Background="{ThemeResource ControlFillColorDefaultBrush}"
                         BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
-                        BorderThickness="1" CornerRadius="4" Padding="12,6" Margin="0,2"
+                        BorderThickness="1" CornerRadius="4" Padding="12,6" Margin="2"
                         HorizontalAlignment="Left" Width="{{width}}">
                     <TextBlock Text="{Binding}" TextAlignment="Center" VerticalAlignment="Center"/>
                 </Border>
@@ -210,10 +226,9 @@ internal sealed partial class SettingsWindow
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     BorderThickness="1" CornerRadius="8" Padding="4"/>
             """);
-        frame.HorizontalAlignment = HorizontalAlignment.Left;
         frame.Child = list;
 
-        var actions = new StackPanel { Spacing = 8, VerticalAlignment = VerticalAlignment.Top };
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right };
         foreach (var (label, step) in new[] { ("Move up", -1), ("Move down", 1) })
         {
             var button = new Button { Content = label, HorizontalAlignment = HorizontalAlignment.Stretch };
@@ -239,11 +254,8 @@ internal sealed partial class SettingsWindow
             PreviewSettings();
         };
         actions.Children.Add(reset);
-        var layout = new Grid { ColumnSpacing = 12, HorizontalAlignment = HorizontalAlignment.Left };
-        layout.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        layout.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var layout = new StackPanel { Spacing = 8, Margin = new Thickness(0, 8, 0, 8) };
         layout.Children.Add(frame);
-        Grid.SetColumn(actions, 1);
         layout.Children.Add(actions);
         section.Children.Add(layout);
     }

@@ -71,7 +71,7 @@ internal sealed partial class SettingsWindow
 
         var latestVersion = new TextBlock { Text = "Latest version: Not checked", Opacity = .75, TextWrapping = TextWrapping.Wrap };
         var versions = new StackPanel { Spacing = 4, VerticalAlignment = VerticalAlignment.Top };
-        versions.Children.Add(new TextBlock { Text = DockWindow.DisplayVersion });
+        versions.Children.Add(new TextBlock { Text = $"Current version: {DockWindow.DisplayVersion}" });
         versions.Children.Add(latestVersion);
         var row = new Grid { ColumnSpacing = 20 };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -80,7 +80,7 @@ internal sealed partial class SettingsWindow
         Grid.SetColumn(actions, 1);
         row.Children.Add(actions);
 
-        var controls = new StackPanel { Tag = "Installed version", Spacing = 12 };
+        var controls = new StackPanel { Tag = "Installed version", Spacing = 12, Padding = new Thickness(0, 8, 0, 8) };
         controls.Children.Add(row);
         controls.Children.Add(new CheckBox { Content = "Download and install updates automatically", IsEnabled = false });
         controls.Children.Add(new TextBlock
