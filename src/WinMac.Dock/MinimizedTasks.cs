@@ -107,12 +107,12 @@ internal sealed partial class DockWindow
         var entries = DownloadPinLayout.OrderEntries(
             TaskReconciler.Reconcile(Settings.Items, prospective, Settings.GroupWindows, Settings.CombinePinnedIconsWithRunningApplications, MinimizedOnly),
             Settings.AutomaticItemOrder);
-        var flags = DownloadPinLayout.IconFlags(entries);
+        var flags = DownloadPinLayout.IconFlags(entries, Settings.HideLeadingAutomaticSeparator);
         int index = 0;
         DockEntry? previous = null;
         foreach (var entry in entries)
         {
-            if (DownloadPinLayout.NeedsSeparator(previous, entry)) index++;
+            if (DownloadPinLayout.NeedsSeparator(previous, entry, Settings.HideLeadingAutomaticSeparator)) index++;
             if (entry.Windows.Any(window => window.Handle == task.Handle)) break;
             index++;
             previous = entry;

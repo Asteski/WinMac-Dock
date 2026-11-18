@@ -155,13 +155,14 @@ internal sealed partial class SettingsWindow
                 yield break;
             case "Applications":
                 yield return Special("File Explorer", "fileexplorer", DockWindow.IsFileExplorer);
+                yield return Special("Snipping Tool", "snippingtool", ShellService.IsSnippingTool);
                 break;
         }
 
         var kind = page == "Folders" ? ItemKind.Folder : ItemKind.Application;
         foreach (var item in dock.Settings.Items)
             if (item.Kind == kind && !item.IsAutoUsbPin && !item.IsDownloadedPin
-                && !DockWindow.IsDownloads(item) && !DockWindow.IsFileExplorer(item))
+                && !DockWindow.IsDownloads(item) && !DockWindow.IsFileExplorer(item) && !ShellService.IsSnippingTool(item))
                 yield return (ShellService.IsMicrosoftStore(item) ? "Store" : item.Name, item, null);
     }
 
@@ -268,7 +269,8 @@ internal sealed partial class SettingsWindow
             return new FontIcon { Glyph = "\uEA96", FontSize = 16, FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("ms-appx:///assets/fonts/StoreIcons.ttf#Store Fluent Icons") };
         if (ShellService.IsXbox(item))
             return new FontIcon { Glyph = "\uE3E3", FontSize = 16, FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("ms-appx:///assets/fonts/XboxFluent.ttf#Xbox Fluent") };
-        if (ShellService.IsSnippingTool(item)) return DockWindow.Glyph("\uE722");
+        if (ShellService.IsSnippingTool(item))
+            return new FontIcon { Glyph = "\uF406", FontSize = 16, FontFamily = new Microsoft.UI.Xaml.Media.FontFamily(SettingsIconFont) };
         if (ShellService.IsTerminal(item) || IsWsl(item))
         {
             var terminal = DockWindow.Glyph("\uF1FD");
@@ -311,7 +313,7 @@ internal sealed partial class SettingsWindow
 
     private void AddItemCard(string page, string title, DockItem item, string? key, StackPanel? destination = null)
     {
-        var body = new StackPanel { Spacing = page is "Modules" or "Folders" ? 0 : 10, Padding = page is "Modules" or "Folders" ? new Thickness(20, 0, 20, 0) : new Thickness(20, 16, 20, 18) };
+        var body = new StackPanel { Padding = new Thickness(20, 0, 20, 0) };
         var card = (Border)Microsoft.UI.Xaml.Markup.XamlReader.Load("""
             <Border xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
@@ -344,7 +346,7 @@ internal sealed partial class SettingsWindow
         void AddCardRow(string label, FrameworkElement control)
         {
             var row = SettingRow(label, control);
-            if (page is "Modules" or "Folders") ApplyCardRowLayout(row, body.Children.Count > 0);
+            ApplyCardRowLayout(row, body.Children.Count > 0);
             body.Children.Add(row);
         }
 

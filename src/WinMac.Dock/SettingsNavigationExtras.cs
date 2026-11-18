@@ -179,6 +179,9 @@ internal sealed partial class SettingsWindow
             CanDragItems = true,
             AllowDrop = true,
             MinHeight = 0,
+            // GridView can animate collection moves as removal and insertion,
+            // briefly sliding tiles vertically even when they stay in one row.
+            ItemContainerTransitions = new Microsoft.UI.Xaml.Media.Animation.TransitionCollection(),
             SelectionMode = ListViewSelectionMode.Single
         };
         var labelMeasure = new TextBlock();
@@ -229,7 +232,7 @@ internal sealed partial class SettingsWindow
         frame.Child = list;
 
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right };
-        foreach (var (label, step) in new[] { ("Move up", -1), ("Move down", 1) })
+        foreach (var (label, step) in new[] { ("Move left", -1), ("Move right", 1) })
         {
             var button = new Button { Content = label, HorizontalAlignment = HorizontalAlignment.Stretch };
             button.Click += (_, _) =>

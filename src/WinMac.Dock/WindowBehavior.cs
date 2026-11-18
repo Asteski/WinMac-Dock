@@ -29,12 +29,16 @@ internal sealed partial class DockWindow
         catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223) { }
         catch (Exception ex) { Log.Write(ex); _ = Message("Could not restart the dock", ex.Message); }
     }
+    private static bool NeedsEmptySlot(IReadOnlyList<DockEntry> entries) =>
+        entries.All(entry => entry.Item.Kind == ItemKind.Separator);
+
     private bool UpdateAutoFit(IReadOnlyList<DockEntry> entries)
     {
         if (dragging || popupCount > 0) return false;
         var displays = Native.Monitors();
         var display = displays.FirstOrDefault(m => (m.Device == SelectedMonitor || m.Identity == SelectedMonitor)) ?? displays.FirstOrDefault(m => m.Primary) ?? displays[0];
-        var flags = DownloadPinLayout.IconFlags(entries);
+        var flags = DownloadPinLayout.IconFlags(entries, Settings.HideLeadingAutomaticSeparator);
+        if (NeedsEmptySlot(entries)) flags.Add(true);
         double margins = Vertical ? Settings.DockMarginTop + Settings.DockMarginBottom : Settings.DockMarginLeft + Settings.DockMarginRight;
         double available = ((Vertical ? display.Work.Height : display.Work.Width) - margins) / display.Scale;
         var fit = DockAutoFit.Calculate(Settings.IconSize, Settings.WindowsTaskbarHighlights ? 20 : 12, flags, Settings.IconSpacing, available,

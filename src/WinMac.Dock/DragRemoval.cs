@@ -114,6 +114,7 @@ internal sealed partial class DockWindow
             int pixelHeight = Math.Max(1, (int)Math.Ceiling(height * scale));
             if (draggedElement?.Tag is DockEntry { Item.Kind: ItemKind.Spacer })
             {
+                pixelWidth = pixelHeight = IconPixels;
                 var path = IconResources.PathFor(BundledIcons.Application);
                 var icon = await IconService.Load(path, imageFile: true, requestedPixels: IconPixels);
                 if (icon == null) return;

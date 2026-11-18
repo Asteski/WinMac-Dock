@@ -38,7 +38,7 @@ internal sealed partial class DockWindow
     }
     private readonly Microsoft.UI.Xaml.DispatcherTimer usbPinTimer = new() { Interval = TimeSpan.FromSeconds(2) };
     private bool usbTimerHooked, scanningUsb;
-    private bool UsbPinningEnabled => Settings.Items.Any(i => IsFileExplorer(i) && i.PinUsbDrives);
+    private bool UsbPinningEnabled => ModulePreferenceItems("fileexplorer", IsFileExplorer).Any(item => item.PinUsbDrives);
 
     private void SyncUsbPinning()
     {

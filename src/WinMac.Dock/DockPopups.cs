@@ -316,7 +316,7 @@ internal sealed partial class DockWindow
         if (visibilitySliding && !hidden) FinishVisibilityAnimation();
         var position = new Windows.Foundation.Point((point.X - hostBounds.Left) / scale, (point.Y - hostBounds.Top) / scale);
         if (separator?.Tag is DockEntry entry) ShowDockFlyout(ItemMenu(entry), separator, position);
-        else ShowDockFlyout(BackgroundMenu(), dockBorder, position);
+        else ShowDockFlyout(BackgroundMenu(pointerPosition: position), dockBorder, position);
     }
     private void ShowDockFlyout(FlyoutBase flyout, FrameworkElement anchor, Windows.Foundation.Point? requestedPosition = null)
     {
@@ -330,6 +330,18 @@ internal sealed partial class DockWindow
         {
             AlignMenuDockGap(flyout);
             if (id != null) CenterItemMenu(flyout, anchor);
+            if (anchor is Grid { Tag: DockEntry { Item.Kind: ItemKind.Spacer } entry } spacer)
+            {
+                var highlight = CreateSpacerOutline(spacer);
+                if (!entry.Item.ExpandSpacer)
+                {
+                    highlight.Width = highlight.Height = Math.Max(0, Math.Min(ButtonSize, ButtonCrossSize) - 8);
+                    highlight.HorizontalAlignment = HorizontalAlignment.Center;
+                    highlight.VerticalAlignment = VerticalAlignment.Center;
+                }
+                flyout.Opened += (_, _) => spacer.Children.Add(highlight);
+                flyout.Closed += (_, _) => spacer.Children.Remove(highlight);
+            }
         }
         // Light dismissal requires a foreground owner. This runs only for an
         // explicitly opened popup, never from passive startup or maintenance.
@@ -338,6 +350,13 @@ internal sealed partial class DockWindow
         Native.SetForegroundWindow(Handle);
         flyout.ShowAt(root, DockPopupOptions(anchor, requestedPosition));
     }
+    private static Border CreateSpacerOutline(FrameworkElement spacer) => new()
+    {
+        BorderBrush = new SolidColorBrush(spacer.ActualTheme == ElementTheme.Dark ? Microsoft.UI.Colors.White : Microsoft.UI.Colors.Black),
+        BorderThickness = new Thickness(2), CornerRadius = new CornerRadius(5),
+        Margin = new Thickness(4), Opacity = .65, IsHitTestVisible = false
+    };
+
     private void AlignMenuDockGap(FlyoutBase flyout)
     {
         void Opened(object? sender, object args)

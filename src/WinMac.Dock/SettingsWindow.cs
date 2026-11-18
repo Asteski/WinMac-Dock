@@ -128,7 +128,7 @@ internal sealed partial class SettingsWindow : Window
         bool startExpanded = startupWidth >= expandedPaneWidth;
         var nav = settingsNavigation = new NavigationView
         {
-            PaneDisplayMode = startExpanded ? NavigationViewPaneDisplayMode.Left : NavigationViewPaneDisplayMode.LeftMinimal,
+            PaneDisplayMode = startExpanded ? NavigationViewPaneDisplayMode.Left : NavigationViewPaneDisplayMode.LeftCompact,
             IsTitleBarAutoPaddingEnabled = false,
             IsPaneOpen = startExpanded,
             IsPaneToggleButtonVisible = false,
@@ -138,11 +138,12 @@ internal sealed partial class SettingsWindow : Window
             OpenPaneLength = 190,
             Content = content
         };
+        nav.Loaded += (_, _) => nav.IsPaneOpen = nav.ActualWidth >= expandedPaneWidth;
         nav.SizeChanged += (_, e) =>
         {
             if (e.NewSize.Width <= 0) return;
             bool expanded = e.NewSize.Width >= expandedPaneWidth;
-            var mode = expanded ? NavigationViewPaneDisplayMode.Left : NavigationViewPaneDisplayMode.LeftMinimal;
+            var mode = expanded ? NavigationViewPaneDisplayMode.Left : NavigationViewPaneDisplayMode.LeftCompact;
             if (nav.PaneDisplayMode == mode) return;
             nav.PaneDisplayMode = mode;
             nav.IsPaneOpen = expanded;
@@ -364,13 +365,12 @@ internal sealed partial class SettingsWindow : Window
         AddToggle("Show border around dock", dock.Settings.ShowDockBorder, value => { dock.Settings.ShowDockBorder = value; PreviewSettings(); });
         AddAppearanceColor("Dock border colour", dock.Settings.DockBorderColor, value => dock.Settings.DockBorderColor = value);
         AddPercentSlider("Dock border opacity", dock.Settings.DockBorderOpacity, value => { dock.Settings.DockBorderOpacity = value; PreviewSettings(); });
-        var spanFullWidth = AddToggle("Span the full screen edge", dock.Settings.SpanFullWidth, value => { dock.Settings.SpanFullWidth = value; PreviewSettings(); });
-        var spanOnlyMaximized = AddToggle("Span only for maximized windows or full edge coverage", dock.Settings.SpanFullWidthOnlyWhenMaximized, value => { dock.Settings.SpanFullWidthOnlyWhenMaximized = value; PreviewSettings(); });
+        AddToggle("Span the full screen edge", dock.Settings.SpanFullWidth, value => { dock.Settings.SpanFullWidth = value; PreviewSettings(); });
+        AddToggle("Span only for maximized windows or full edge coverage", dock.Settings.SpanFullWidthOnlyWhenMaximized, value => { dock.Settings.SpanFullWidthOnlyWhenMaximized = value; PreviewSettings(); });
         AddSettingDescription((Grid)panel.Children[^1], new TextBlock { Text = "Spans when a window is maximized or when windows together cover the dock edge." });
-        var squareWhenSpanning = AddToggle("Disable rounded corners while spanning", dock.Settings.SquareCornersWhenSpanning, value => { dock.Settings.SquareCornersWhenSpanning = value; PreviewSettings(); });
-        spanOnlyMaximized.IsEnabled = spanFullWidth.IsOn;
-        squareWhenSpanning.IsEnabled = spanFullWidth.IsOn && dock.Settings.RoundedCorners;
-        spanFullWidth.Toggled += (_, _) => { spanOnlyMaximized.IsEnabled = spanFullWidth.IsOn; squareWhenSpanning.IsEnabled = spanFullWidth.IsOn && dock.Settings.RoundedCorners; };
+        AddToggle("Disable rounded corners while spanning", dock.Settings.SquareCornersWhenSpanning, value => { dock.Settings.SquareCornersWhenSpanning = value; PreviewSettings(); });
+        AddToggle("Hide leading automatic separator", dock.Settings.HideLeadingAutomaticSeparator, value => { dock.Settings.HideLeadingAutomaticSeparator = value; PreviewSettings(); });
+        AddSettingDescription((Grid)panel.Children[^1], new TextBlock { Text = "Hide the divider before the first automatic group when no items are pinned manually." });
         AddToggle("Show icon highlights", dock.Settings.ShowIconHighlights, value => { dock.Settings.ShowIconHighlights = value; PreviewSettings(); });
         AddToggle("Animate folder flyout closing", dock.Settings.AnimateFolderFlyoutClosing, value => { dock.Settings.AnimateFolderFlyoutClosing = value; PreviewSettings(); });
         var itemShape = AddRow("Item indicator shape", new ComboBox { ItemsSource = new[] { "Pill", "Circle" }, SelectedIndex = (int)dock.Settings.ItemIndicatorShape });
@@ -415,7 +415,7 @@ internal sealed partial class SettingsWindow : Window
         AddSettingDescription((Grid)panel.Children[^1], new TextBlock { Text = "Shows the dock until you focus the requesting window or it closes. A bounce already in progress can finish. Fullscreen hiding and Task View visibility can still take priority." });
         var reveal = AddRow("Mouse reveal behaviour", new ComboBox { ItemsSource = new[] { "Temporary overlay", "Restore dock reservation", "Disabled" }, SelectedIndex = (int)dock.Settings.ManualRevealBehavior });
         reveal.SelectionChanged += (_, _) => { if (reveal.SelectedIndex >= 0) { dock.Settings.ManualRevealBehavior = (ManualRevealBehavior)reveal.SelectedIndex; PreviewSettings(); } };
-        AddSettingDescription((Grid)panel.Children[^1], new TextBlock { Text = "When disabled, moving the mouse to the screen edge does not reveal a manually hidden dock. The temporary overlay hides after the pointer leaves and the overlay hide delay elapses. Restore dock reservation requires Always visible mode and Reserve space for the dock to be on. Showing the dock with the keyboard shortcut restores reserved space when the mode supports it and Reserve space for the dock is on." });
+        AddSettingDescription((Grid)panel.Children[^1], new TextBlock { Text = "Controls how the screen edge reveals a manually hidden dock, except in Toggle at screen edge mode." });
         AddNumber("Temporary overlay hide delay (ms)", dock.Settings.ManualOverlayHideDelayMs, 0, 5000, value => { dock.Settings.ManualOverlayHideDelayMs = value; PreviewSettings(); });
         AddToggle("Use the entire screen edge to reveal or hide the dock", dock.Settings.FullScreenEdgeTrigger, value => { dock.Settings.FullScreenEdgeTrigger = value; PreviewSettings(); });
         AddToggle("Hide immediately for fullscreen applications", dock.Settings.HideImmediatelyForFullscreen, value => { dock.Settings.HideImmediatelyForFullscreen = value; PreviewSettings(); });
@@ -498,6 +498,7 @@ internal sealed partial class SettingsWindow : Window
         AddToggle("Follow Windows animation settings", dock.Settings.FollowWindowsAnimations, value => { dock.Settings.FollowWindowsAnimations = value; PreviewMotionSettings(); });
         AddToggle("Disable animations", dock.Settings.ReduceMotion, value => { dock.Settings.ReduceMotion = value; magnification.IsEnabled = !value; magnificationRow.Opacity = value ? .5 : 1; PreviewMotionSettings(); });
         AddToggle("Show Dock settings in item context menus", dock.Settings.ShowDockSettingsInItemMenus, value => { dock.Settings.ShowDockSettingsInItemMenus = value; PreviewSettings(); });
+        AddSettingDescription((Grid)panel.Children[^1], new TextBlock { Text = "When enabled, hold Alt and right-click the dock to show Exit in the dock menu." });
         AddToggle("Use a keyboard shortcut to show or hide the dock", dock.Settings.HotkeyEnabled, value => { dock.Settings.HotkeyEnabled = value; PreviewSettings(); });
         AddShortcutRow();
         AddToggle("Run at startup", dock.Settings.StartAtLogin, value => { dock.Settings.StartAtLogin = value; PreviewSettings(); });
@@ -536,7 +537,7 @@ internal sealed partial class SettingsWindow : Window
             ["Appearance"] = "Theme, size, background material, and visual indicators.",
             ["Positioning"] = "Where the dock appears and how it fits the display.",
             ["Visibility"] = "Visibility, windows, and workspace behaviour.",
-            ["Effects"] = "Control when the dock spans the screen edge.",
+            ["Effects"] = "Control screen-edge spanning and automatic separators.",
             ["Exclusions"] = "Choose which running windows are hidden from the dock.",
             ["Advanced"] = "Motion and interaction tuning."
         };
@@ -597,7 +598,8 @@ internal sealed partial class SettingsWindow : Window
             if (text is "Show icon highlights" or "Icon highlight style") return ("Appearance", "Icons", "Configure icon labels and highlights.");
             if (text is "Enable rounded corners" or "Show border around dock" or "Dock border colour" or "Dock border opacity") return ("Appearance", "Dock", "Adjust the dock’s corners and border.");
             if (text.Contains("Dock background", StringComparison.OrdinalIgnoreCase) || text.Contains("material", StringComparison.OrdinalIgnoreCase) || text.Contains("opacity", StringComparison.OrdinalIgnoreCase) || text.Contains("tint", StringComparison.OrdinalIgnoreCase)) return ("Appearance", "Theme", "Choose the dock theme, background effect, and transparency.");
-            if (text.Contains("Span the full screen width", StringComparison.OrdinalIgnoreCase) || text.Contains("Span only for maximized windows or full edge coverage", StringComparison.OrdinalIgnoreCase) || text.Contains("while spanning", StringComparison.OrdinalIgnoreCase)) return ("Effects", "Screen-edge spanning", "Choose when the dock fills the screen edge and how its corners look while spanning.");
+            if (text == "Hide leading automatic separator") return ("Effects", "Separators", "Control the divider before the first automatic item group.");
+            if (text.Equals("Span the full screen edge", StringComparison.OrdinalIgnoreCase) || text.Contains("Span only for maximized windows or full edge coverage", StringComparison.OrdinalIgnoreCase) || text.Contains("while spanning", StringComparison.OrdinalIgnoreCase)) return ("Effects", "Screen-edge spanning", "Choose when the dock fills the screen edge and how its corners look while spanning.");
             if (text == "Appearance") return ("Appearance", "Theme", "Choose the dock theme, background effect, and transparency.");
             if (text.Contains("position", StringComparison.OrdinalIgnoreCase) || text.Contains("alignment", StringComparison.OrdinalIgnoreCase) || text.Contains("margin", StringComparison.OrdinalIgnoreCase) || text.Contains("gap", StringComparison.OrdinalIgnoreCase) || text.Contains("Display", StringComparison.OrdinalIgnoreCase) || text.Contains("Space between", StringComparison.OrdinalIgnoreCase)) return ("Positioning", text.Contains("margin", StringComparison.OrdinalIgnoreCase) ? "Spacing & margins" : "Placement", "Choose the dock edge, alignment, and display.");
             if (text.Contains("fullscreen", StringComparison.OrdinalIgnoreCase) || text.Contains("Visibility", StringComparison.OrdinalIgnoreCase) || text.Contains("hide", StringComparison.OrdinalIgnoreCase) || text.Contains("reveal", StringComparison.OrdinalIgnoreCase) || text.Contains("Task View", StringComparison.OrdinalIgnoreCase) || text.Contains("attention", StringComparison.OrdinalIgnoreCase) || text.Contains("taskbar", StringComparison.OrdinalIgnoreCase)) return ("Visibility", "Dock", "Control when the dock stays visible and how it returns.");
@@ -677,7 +679,7 @@ internal sealed partial class SettingsWindow : Window
             "Appearance" => "Theme, size, background material, and visual indicators.",
             "Positioning" => "Where the dock appears and how it fits the display.",
             "Visibility" => "Visibility, windows, and workspace behaviour.",
-            "Effects" => "Control when the dock spans the screen edge.",
+            "Effects" => "Control screen-edge spanning and automatic separators.",
             "Exclusions" => "Separate rules with semicolons. Use * for any number of characters and ? for one character.",
             "Modules" => "Customize modules and their behaviour.",
             "Folders" => "Customize pinned folders and their behaviour.",

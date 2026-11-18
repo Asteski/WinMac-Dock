@@ -133,8 +133,8 @@ internal sealed partial class DockWindow
             BounceItem(item);
             if (Motion && !dockOverflow) await Task.Delay(Settings.LaunchBounceMs + 32);
             bool unpin = item.CapturePin != CapturePinKind.None
-                ? Settings.Items.Any(i => ShellService.IsSnippingTool(i) && i.Snipping.UnpinAfterOpening)
-                : Settings.Items.Any(i => i.Kind == ItemKind.Folder && IsDownloads(i) && i.Folder.UnpinDownloadsAfterOpening);
+                ? ModulePreferenceItems("snippingtool", ShellService.IsSnippingTool).Any(i => i.Snipping.UnpinAfterOpening)
+                : DownloadPreferenceItems().Any(i => i.Folder.UnpinDownloadsAfterOpening);
             if (closing || !unpin) return;
             while (!closing && popupCount > 0) await Task.Delay(16);
             if (closing || !Settings.Items.Remove(item)) return;
@@ -144,6 +144,9 @@ internal sealed partial class DockWindow
         catch (Exception ex) { Log.Write(ex); }
         finally { openingDownloadPins.Remove(item.Id); QueueDownloadScan(); }
     }
+
+    private IEnumerable<DockItem> DownloadPreferenceItems() =>
+        ModulePreferenceItems("downloads", item => item.Kind == ItemKind.Folder && IsDownloads(item));
 
     private void SyncDownloadPinning()
     {
@@ -156,9 +159,9 @@ internal sealed partial class DockWindow
         foreach (var file in readyDownloadIcons.Keys.Where(p => !Settings.Items.Any(i => i.IsDownloadedPin && string.Equals(i.Target, p, StringComparison.OrdinalIgnoreCase))).ToArray()) readyDownloadIcons.Remove(file);
         if (MonitorOverride != null) return;
         SyncSnippingPinning();
-        var downloadsItem = Settings.Items.FirstOrDefault(i => i.Kind == ItemKind.Folder && IsDownloads(i));
+        var downloadsItem = DownloadPreferenceItems().FirstOrDefault();
         if (downloadsItem != null && DownloadPinLayout.Trim(Settings.Items, downloadsItem.Folder.DownloadPinLimit)) Save();
-        var paths = Settings.Items.Where(i => i.Kind == ItemKind.Folder && IsDownloads(i) && (i.Folder.PinNewDownloads || i.Folder.OpenNewDownloadsAutomatically))
+        var paths = DownloadPreferenceItems().Where(i => i.Folder.PinNewDownloads || i.Folder.OpenNewDownloadsAutomatically)
             .Select(i => i.Target).ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var path in downloadTrackers.Keys.Where(p => !paths.Contains(p)).ToArray()) downloadTrackers.Remove(path);
         bool added = false;
@@ -213,7 +216,7 @@ internal sealed partial class DockWindow
                     catch (UnauthorizedAccessException) { return null; }
                 });
                 if (closing || files == null || !downloadTrackers.TryGetValue(path, out var active) || active != tracker) continue;
-                var options = Settings.Items.FirstOrDefault(i => i.Kind == ItemKind.Folder && IsDownloads(i) && string.Equals(i.Target, path, StringComparison.OrdinalIgnoreCase))?.Folder;
+                var options = DownloadPreferenceItems().FirstOrDefault(i => string.Equals(i.Target, path, StringComparison.OrdinalIgnoreCase))?.Folder;
                 if (options == null) continue;
                 var ready = tracker.Observe(files, DateTime.UtcNow);
                 var icons = await Task.WhenAll(ready.Select(async file => (Path: file, Source: await IconService.Load(file, requestedPixels: IconPixels))));
@@ -234,7 +237,7 @@ internal sealed partial class DockWindow
             changed |= await ScanSnippingPins();
             if (changed)
             {
-                var downloadsItem = Settings.Items.FirstOrDefault(i => i.Kind == ItemKind.Folder && IsDownloads(i));
+                var downloadsItem = DownloadPreferenceItems().FirstOrDefault();
                 if (downloadsItem != null) DownloadPinLayout.Trim(Settings.Items, downloadsItem.Folder.DownloadPinLimit);
                 Save(); Reconcile();
             }

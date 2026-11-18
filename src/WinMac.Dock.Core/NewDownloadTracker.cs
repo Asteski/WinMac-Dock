@@ -54,14 +54,17 @@ public static class DownloadPinLayout
     }
 
     public static List<DockItem> OrderPins(IEnumerable<DockItem> items) => items.OrderBy(i => i.IsDownloadedPin ? 2 : i.IsAutoUsbPin ? 1 : 0).ToList();
-    public static List<AutomaticItemKind> NormalizeOrder(IEnumerable<AutomaticItemKind>? order) =>
-        (order ?? []).Where(kind => Enum.IsDefined(kind)).Concat(Enum.GetValues<AutomaticItemKind>()).Distinct().ToList();
+    public static List<AutomaticItemKind> NormalizeOrder(IEnumerable<AutomaticItemKind>? order)
+    {
+        return (order ?? []).Concat(Enum.GetValues<AutomaticItemKind>())
+            .Where(kind => kind != AutomaticItemKind.Pinned && Enum.IsDefined(kind)).Distinct().ToList();
+    }
 
-    private static AutomaticItemKind? AutomaticKind(DockEntry entry)
+    private static AutomaticItemKind AutomaticKind(DockEntry entry)
     {
         if (!entry.IsPinned) return AutomaticItemKind.Windows;
         if (entry.Item.IsAutoUsbPin) return AutomaticItemKind.ExternalDisks;
-        if (!entry.Item.IsDownloadedPin) return null;
+        if (!entry.Item.IsDownloadedPin) return AutomaticItemKind.Pinned;
         return entry.Item.CapturePin switch
         {
             CapturePinKind.Screenshot => AutomaticItemKind.Screenshots,
@@ -73,19 +76,19 @@ public static class DownloadPinLayout
     public static List<DockEntry> OrderEntries(IEnumerable<DockEntry> entries, IEnumerable<AutomaticItemKind>? order)
     {
         var kinds = NormalizeOrder(order);
-        return entries.OrderBy(entry => AutomaticKind(entry) is { } kind ? kinds.IndexOf(kind) : -1).ToList();
+        return entries.OrderBy(entry => kinds.IndexOf(AutomaticKind(entry))).ToList();
     }
 
-    public static bool NeedsSeparator(DockEntry? previous, DockEntry entry) =>
-        previous == null ? !entry.IsPinned : previous.Item.Kind != ItemKind.Separator
+    public static bool NeedsSeparator(DockEntry? previous, DockEntry entry, bool hideLeading = false) =>
+        previous == null ? !hideLeading && !entry.IsPinned : previous.Item.Kind != ItemKind.Separator
             && entry.Item.Kind != ItemKind.Separator && AutomaticKind(previous) != AutomaticKind(entry);
-    public static List<bool> IconFlags(IReadOnlyList<DockEntry> entries)
+    public static List<bool> IconFlags(IReadOnlyList<DockEntry> entries, bool hideLeading = false)
     {
         var flags = new List<bool>();
         DockEntry? previous = null;
         foreach (var entry in entries)
         {
-            if (NeedsSeparator(previous, entry))
+            if (NeedsSeparator(previous, entry, hideLeading))
                 flags.Add(false);
             flags.Add(entry.Item.Kind != ItemKind.Separator);
             previous = entry;

@@ -32,6 +32,7 @@ internal sealed partial class SettingsWindow
         {
             Content = "Check for updates",
             HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Top,
             Padding = new Thickness(12, 5, 12, 5)
         };
         if (Application.Current.Resources.TryGetValue("AccentButtonStyle", out var accentStyle) && accentStyle is Style style)
@@ -44,14 +45,10 @@ internal sealed partial class SettingsWindow
                 check.Foreground = brush;
         }
 
-        var status = new TextBlock
-        {
-            Visibility = Visibility.Collapsed,
-            TextWrapping = TextWrapping.Wrap,
-            TextAlignment = TextAlignment.Right,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            MaxWidth = 220
-        };
+        const string initialStatus = "Latest version: Not checked";
+        var status = new TextBlock { Text = initialStatus, Opacity = .75, TextWrapping = TextWrapping.Wrap };
+        bool closed = false;
+        Closed += (_, _) => { closed = true; status.Text = initialStatus; };
         int lightStatus = 0x005FB8, darkStatus = 0x60CDFF;
         void UpdateStatusColor() => status.Foreground = StatusBrush(status.ActualTheme, lightStatus, darkStatus);
         status.ActualThemeChanged += (_, _) => UpdateStatusColor();
@@ -59,26 +56,20 @@ internal sealed partial class SettingsWindow
         {
             lightStatus = light;
             darkStatus = dark;
-            status.Text = message;
+            status.Opacity = 1;
+            status.Inlines.Clear();
+            status.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = message });
             UpdateStatusColor();
         }
-        var details = new Button { Content = "View release notes", Visibility = Visibility.Collapsed, HorizontalAlignment = HorizontalAlignment.Right };
-        details.Click += (_, _) => dock.TryAction(() => ShellService.Open(DockReleasePage));
-        var actions = new StackPanel { Spacing = 6, HorizontalAlignment = HorizontalAlignment.Right };
-        actions.Children.Add(check);
-        actions.Children.Add(status);
-        actions.Children.Add(details);
-
-        var latestVersion = new TextBlock { Text = "Latest version: Not checked", Opacity = .75, TextWrapping = TextWrapping.Wrap };
         var versions = new StackPanel { Spacing = 4, VerticalAlignment = VerticalAlignment.Top };
         versions.Children.Add(new TextBlock { Text = $"Current version: {DockWindow.DisplayVersion}" });
-        versions.Children.Add(latestVersion);
+        versions.Children.Add(status);
         var row = new Grid { ColumnSpacing = 20 };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         row.Children.Add(versions);
-        Grid.SetColumn(actions, 1);
-        row.Children.Add(actions);
+        Grid.SetColumn(check, 1);
+        row.Children.Add(check);
 
         var controls = new StackPanel { Tag = "Installed version", Spacing = 12, Padding = new Thickness(0, 8, 0, 8) };
         controls.Children.Add(row);
@@ -101,32 +92,37 @@ internal sealed partial class SettingsWindow
 
         async Task Check()
         {
-            if (!check.IsEnabled) return;
+            if (closed || !check.IsEnabled) return;
             check.IsEnabled = false;
             ShowStatus("Checking for updates...", 0x005FB8, 0x60CDFF);
-            status.Visibility = Visibility.Visible;
-            details.Visibility = Visibility.Collapsed;
             try
             {
                 var latest = await ReadLatestDockVersion();
+                if (closed) return;
                 var installed = typeof(SettingsWindow).Assembly.GetName().Version;
                 if (installed == null) throw new InvalidOperationException("The installed version is unavailable.");
                 var current = new Version(installed.Major, installed.Minor, Math.Max(0, installed.Build));
-                bool prerelease = DockWindow.DisplayVersion.Contains(" RC", StringComparison.OrdinalIgnoreCase)
+                bool prerelease = DockWindow.DisplayVersion.Contains("-RC", StringComparison.OrdinalIgnoreCase)
                     || DockWindow.DisplayVersion.Contains("beta", StringComparison.OrdinalIgnoreCase);
                 string label = latest.Number + (latest.Prerelease ? " (prerelease)" : "");
-                latestVersion.Text = $"Latest version: {label}";
                 bool available = latest.CompareTo(new DockReleaseVersion(current, prerelease)) > 0;
                 if (available) ShowStatus($"WinMac Dock {label} is available.", 0x974600, 0xFFB366);
                 else ShowStatus("You're up to date.", 0x0F6D32, 0x6CCB80);
-                if (available) details.Visibility = Visibility.Visible;
+                if (available)
+                {
+                    var details = new Microsoft.UI.Xaml.Documents.Hyperlink();
+                    details.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = "View release notes" });
+                    details.Click += (_, _) => dock.TryAction(() => ShellService.Open(DockReleasePage));
+                    status.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = " " });
+                    status.Inlines.Add(details);
+                }
             }
             catch (Exception ex)
             {
                 Log.Write(ex);
-                ShowStatus("Couldn't check for updates. Try again later.", 0xA4262C, 0xFF99A4);
+                if (!closed) ShowStatus("Couldn't check for updates. Try again later.", 0xA4262C, 0xFF99A4);
             }
-            finally { check.IsEnabled = true; }
+            finally { if (!closed) check.IsEnabled = true; }
         }
         checkForUpdates = Check;
         check.Click += async (_, _) => await Check();

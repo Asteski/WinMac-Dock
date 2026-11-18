@@ -7,7 +7,8 @@ internal sealed partial class DockWindow
     private long captureSettingsRead;
     private bool capturePinningEnabled;
     private bool captureScanNeeded;
-    private SnippingOptions? ActiveSnippingOptions => Settings.Items.FirstOrDefault(i => ShellService.IsSnippingTool(i) && i.Snipping.PinNewCaptures)?.Snipping;
+    private SnippingOptions? ActiveSnippingOptions => ModulePreferenceItems("snippingtool", ShellService.IsSnippingTool)
+        .FirstOrDefault(item => item.Snipping.PinNewCaptures)?.Snipping;
     internal void InvalidateCapturePaths() => captureSettingsRead = 0;
 
     private void SyncSnippingPinning()

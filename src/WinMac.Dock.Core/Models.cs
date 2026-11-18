@@ -40,7 +40,7 @@ public enum ItemIndicatorShape { Pill, Circle, Squircle } // Legacy Squircle val
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum AttentionAnimation { Blink, HighBounce }
 [JsonConverter(typeof(JsonStringEnumConverter))]
-public enum AutomaticItemKind { ExternalDisks, Downloads, Screenshots, Recordings, Windows }
+public enum AutomaticItemKind { Pinned = 5, ExternalDisks = 0, Downloads, Screenshots, Recordings, Windows }
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum CapturePinKind { None, Screenshot, Recording }
 
@@ -100,6 +100,7 @@ public sealed record DockItem
     public AdditionalCommandsVisibility ExplorerPinnedCommands { get; set; } = AdditionalCommandsVisibility.Submenu;
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public ItemKind Kind { get; set; }
+    public bool ExpandSpacer { get; set; }
     public string Name { get; set; } = "Item";
     public string Target { get; set; } = "";
     public string Arguments { get; set; } = "";
@@ -152,7 +153,7 @@ public sealed record DockSettings
     public int Version { get; set; } = 1;
     public bool RecycleBinDefaultsUpdated { get; set; }
     public int IconSize { get; set; } = 32;
-    public List<AutomaticItemKind> AutomaticItemOrder { get; set; } = [.. Enum.GetValues<AutomaticItemKind>()];
+    public List<AutomaticItemKind> AutomaticItemOrder { get; set; } = DownloadPinLayout.NormalizeOrder(null);
     public bool CustomFolderFlyoutIconSize { get; set; }
     public int FolderFlyoutIconSize { get; set; } = 40;
     public int MagnifiedSize { get; set; } = 48;
@@ -227,6 +228,7 @@ public sealed record DockSettings
     public int ItemIndicatorOpacity { get; set; } = 100;
     public bool RoundedCorners { get; set; } = true;
     public bool SpanFullWidth { get; set; }
+    public bool HideLeadingAutomaticSeparator { get; set; } = true;
     public bool SpanFullWidthOnlyWhenMaximized { get; set; }
     public bool SquareCornersWhenSpanning { get; set; }
     public GroupIndicatorCorner GroupIndicatorCorner { get; set; } = GroupIndicatorCorner.TopRight;
@@ -450,16 +452,30 @@ public static class VisibilityPolicy
 
 public static class DockOrdering
 {
+    public static void RemovePinnedItem(List<DockItem> items, DockItem item)
+    {
+        int index = items.IndexOf(item);
+        if (index < 0) return;
+
+        bool atStart = index == 0;
+        bool atEnd = index == items.Count - 1;
+        items.RemoveAt(index);
+        if (atStart)
+            while (items.Count > 0 && items[0].Kind == ItemKind.Separator) items.RemoveAt(0);
+        if (atEnd)
+            while (items.Count > 0 && items[^1].Kind == ItemKind.Separator) items.RemoveAt(items.Count - 1);
+    }
+
     private static bool IsSeparator(IReadOnlyList<DockItem> items, int index) =>
         index >= 0 && index < items.Count && items[index].Kind == ItemKind.Separator;
 
     public static int? SeparatorInsertionSlot(IReadOnlyList<DockItem> items, int slot)
     {
-        slot = Math.Clamp(slot, 0, items.Count);
+        if (slot <= 0 || slot >= items.Count) return null;
         if (!IsSeparator(items, slot - 1) && !IsSeparator(items, slot)) return slot;
         int direction = IsSeparator(items, slot) ? -1 : 1;
         foreach (int step in new[] { direction, -direction })
-            for (int candidate = slot + step; candidate >= 0 && candidate <= items.Count; candidate += step)
+            for (int candidate = slot + step; candidate > 0 && candidate < items.Count; candidate += step)
                 if (!IsSeparator(items, candidate - 1) && !IsSeparator(items, candidate)) return candidate;
         return null;
     }
