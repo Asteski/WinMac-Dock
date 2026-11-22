@@ -89,12 +89,12 @@ internal sealed partial class DockWindow
         if (!initialized || closing) return;
         ApplyDesktopVisibility();
         if (hidden || visibilitySliding || popupCount > 0) return;
-        if (!taskViewOpen && !KeepDesktopPeekVisible && HasExternalFullscreenForeground()) return;
+        if (!taskViewOpen && !KeepDesktopPeekVisible && HasExternalFullscreenForeground() && !CanRevealAboveFullscreen(DescribeFullscreenForeground(Native.GetForegroundWindow()))) return;
         SyncSurfaceBandOrder();
         var foreground = tracker.Describe(Native.GetForegroundWindow());
         bool fullscreen = foreground != null && !foreground.Minimized && foreground.Bounds.Left <= monitor.Bounds.Left
             && foreground.Bounds.Top <= monitor.Bounds.Top && foreground.Bounds.Right >= monitor.Bounds.Right && foreground.Bounds.Bottom >= monitor.Bounds.Bottom;
-        if (!taskViewOpen && !KeepDesktopPeekVisible && fullscreen && !FullscreenExclusions.Contains(Settings, foreground)) return;
+        if (!taskViewOpen && !KeepDesktopPeekVisible && fullscreen && !CanRevealAboveFullscreen(foreground)) return;
         bool covered = (Native.GetWindowLongPtrW(Handle, -20).ToInt64() & 8) == 0;
         for (var above = Native.GetWindow(Handle, 3); above != 0 && !covered; above = Native.GetWindow(above, 3))
         {
@@ -106,7 +106,7 @@ internal sealed partial class DockWindow
         }
         if (covered)
         {
-            Native.SetWindowPos(Handle, -1, 0, 0, 0, 0, 0x13);
+            Native.SetWindowPos(Handle, DockZOrderTarget, 0, 0, 0, 0, 0x13);
             if (materialVisible) Native.SetWindowPos(materialHandle, Handle, 0, 0, 0, 0, 0x13);
         }
         KeepTaskbarsAboveDock();
@@ -122,6 +122,7 @@ internal sealed partial class DockWindow
     }
     private void KeepTaskbarsAboveDock()
     {
+        if (fullscreenUnderlay != 0) return;
         if (!initialized || closing || hidden || taskViewOpen || HasExternalFullscreenForeground()) return;
         // Keep both dock surfaces topmost. Lowering them behind an arbitrary
         // taskbar can also put them behind application windows in that chain.

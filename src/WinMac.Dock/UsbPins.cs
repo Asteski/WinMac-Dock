@@ -24,7 +24,7 @@ internal sealed partial class DockWindow
             // Match downloaded-file feedback: wait for the loaded icon and
             // row resize to finish, then consume this appearance exactly once.
             await Task.Yield();
-            bool Current() => !closing && image.Source != null && Settings.Items.Any(i => i.Id == item.Id)
+            bool Current() => !closing && !fullscreenIdleActive && image.Source != null && Settings.Items.Any(i => i.Id == item.Id)
                 && buttons.Any(b => b.Entry.Item.Id == item.Id && b.Icon == icon);
             while (Current() && (!icon.IsLoaded || rowAnimating || rowStaging || rowFinishing || reconciling || positioning || hidden || visibilitySliding || popupCount > 0))
                 await Task.Delay(32);
@@ -62,6 +62,7 @@ internal sealed partial class DockWindow
 
     private async Task ScanUsbPins()
     {
+        if (fullscreenIdleActive) return;
         if (closing || MonitorOverride != null || scanningUsb) return;
         if (!UsbPinningEnabled && !Settings.Items.Any(i => i.IsAutoUsbPin)) return;
         scanningUsb = true;

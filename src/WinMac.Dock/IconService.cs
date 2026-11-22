@@ -89,6 +89,46 @@ internal static class IconService
     // to a new Image. Closing it after SetBitmapAsync causes a native
     // RO_E_CLOSED crash on that later render, outside managed exception handlers.
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ImageSource, SoftwareBitmap> backingBitmaps = new();
+    internal static async Task<ImageSource> FromSoftwareBitmap(SoftwareBitmap bitmap, int pixels)
+    {
+        var source = new SoftwareBitmapSource();
+        await source.SetBitmapAsync(bitmap);
+        backingBitmaps.Add(source, bitmap);
+        dimensions.Add(source, new(bitmap.PixelWidth, bitmap.PixelHeight, pixels, "Native shell artwork"));
+        return source;
+    }
+    internal static async Task<ImageSource> ColourSearchArtwork(ImageSource source)
+    {
+        if (!backingBitmaps.TryGetValue(source, out var original)) return source;
+        int width = original.PixelWidth, height = original.PixelHeight;
+        var bytes = new byte[width * height * 4];
+        original.CopyToBuffer(System.Runtime.InteropServices.WindowsRuntime.WindowsRuntimeBufferExtensions.AsBuffer(bytes));
+        for (int y = 0; y < height; y++) for (int x = 0; x < width; x++)
+        {
+            int index = (y * width + x) * 4;
+            double t = x / (double)Math.Max(1, width - 1), alpha = bytes[index + 3] / 255d;
+            bytes[index] = (byte)Math.Round((212 + (251 - 212) * t) * alpha);
+            bytes[index + 1] = (byte)Math.Round((120 + (65 - 120) * t) * alpha);
+            bytes[index + 2] = (byte)Math.Round(212 * t * alpha);
+        }
+        var coloured = new SoftwareBitmap(BitmapPixelFormat.Bgra8, width, height, BitmapAlphaMode.Premultiplied);
+        coloured.CopyFromBuffer(System.Runtime.InteropServices.WindowsRuntime.WindowsRuntimeBufferExtensions.AsBuffer(bytes));
+        return await FromSoftwareBitmap(coloured, dimensions.TryGetValue(source, out var info) ? info.RequestedPixels : width);
+    }
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ImageSource, Task<ImageSource[]>> iconFrames = new();
+    internal static Task<ImageSource[]> WindowIconFrames(ImageSource source) => iconFrames.GetValue(source, CreateWindowIconFrames);
+    private static async Task<ImageSource[]> CreateWindowIconFrames(ImageSource source)
+    {
+        var frames = new List<ImageSource>();
+        foreach (int size in new[] { 16, 20, 24, 32, 40, 48, 64, 256 })
+        {
+            if (DragPixels(source, size, size) is not { } pixels) continue;
+            var bitmap = new SoftwareBitmap(BitmapPixelFormat.Bgra8, size, size, BitmapAlphaMode.Premultiplied);
+            bitmap.CopyFromBuffer(System.Runtime.InteropServices.WindowsRuntime.WindowsRuntimeBufferExtensions.AsBuffer(pixels));
+            frames.Add(await FromSoftwareBitmap(bitmap, size));
+        }
+        return frames.ToArray();
+    }
     public static bool IsThumbnail(ImageSource source) => dimensions.TryGetValue(source, out var info) && info.Method is "Custom image" or "Thumbnail" or "SVG";
     public static async Task PrepareDragPixels(ImageSource source, int width, int height)
     {
@@ -210,7 +250,7 @@ internal static class IconService
         if (string.IsNullOrEmpty(path)) return Task.FromResult<ImageSource?>(null);
         // Bundled icons and native resources need explicit frame selection and alpha decoding
         // as manually assigned icons. Preserve explicit file-association requests.
-        if (!associatedApp && (Path.GetExtension(path).Equals(".ico", StringComparison.OrdinalIgnoreCase) || path.Contains(".dll,", StringComparison.OrdinalIgnoreCase) || path.Contains(".exe,", StringComparison.OrdinalIgnoreCase))) imageFile = true;
+        if (!associatedApp && (Path.GetExtension(path).Equals(".ico", StringComparison.OrdinalIgnoreCase) || Path.GetExtension(path).Equals(".svg", StringComparison.OrdinalIgnoreCase) || path.Contains(".dll,", StringComparison.OrdinalIgnoreCase) || path.Contains(".exe,", StringComparison.OrdinalIgnoreCase))) imageFile = true;
         requestedPixels = Math.Clamp(requestedPixels, 16, 512);
         var recycle = path.Equals("shell:RecycleBinFolder", StringComparison.OrdinalIgnoreCase) ? RecycleIconLocation() : null;
         var key = RequestKey(path, revision, darkTheme, recycle, thumbnail, imageFile, associatedApp, requestedPixels);
@@ -226,7 +266,7 @@ internal static class IconService
     {
         path = BundledIconPath.Resolve(path, Path.Combine(AppContext.BaseDirectory, "assets"));
         if (string.IsNullOrEmpty(path)) return null;
-        if (!associatedApp && (Path.GetExtension(path).Equals(".ico", StringComparison.OrdinalIgnoreCase) || path.Contains(".dll,", StringComparison.OrdinalIgnoreCase) || path.Contains(".exe,", StringComparison.OrdinalIgnoreCase))) imageFile = true;
+        if (!associatedApp && (Path.GetExtension(path).Equals(".ico", StringComparison.OrdinalIgnoreCase) || Path.GetExtension(path).Equals(".svg", StringComparison.OrdinalIgnoreCase) || path.Contains(".dll,", StringComparison.OrdinalIgnoreCase) || path.Contains(".exe,", StringComparison.OrdinalIgnoreCase))) imageFile = true;
         var recycle = path.Equals("shell:RecycleBinFolder", StringComparison.OrdinalIgnoreCase) ? RecycleIconLocation() : null;
         string key = RequestKey(path, revision, darkTheme, recycle, thumbnail, imageFile, associatedApp, Math.Clamp(requestedPixels, 16, 512));
         if (cache.TryGetValue(key, out var exact)) return exact;
@@ -537,7 +577,7 @@ internal static class IconService
         // placeholder on current Windows builds even though the executable
         // exposes a valid application icon. Read its icon resource directly.
         if (string.Equals(Path.GetFileName(path), "taskmgr.exe", StringComparison.OrdinalIgnoreCase))
-            return ReadFileIcon(path);
+            return ReadExecutableIcon(path, pixels) ?? ReadFileIcon(path);
         if (!thumbnail && Path.GetExtension(path).Equals(".exe", StringComparison.OrdinalIgnoreCase)
             && File.Exists(path) && ReadExecutableIcon(path, pixels) is { } executableIcon) return executableIcon;
         var iid = typeof(IImageFactory).GUID;
@@ -583,6 +623,10 @@ internal static class IconService
     }
     public static string PathFor(DockItem item)
     {
+        if (item.Kind == ItemKind.StartMenu && item.ModuleIconStyle is "mono-rounded" or "mono-squared" or "colour-rounded" or "colour-squared")
+            return Path.Combine(AppContext.BaseDirectory, "assets", "start-button",
+                (item.ModuleIconStyle.StartsWith("mono-") ? darkTheme ? "white" : "black" : "color") +
+                (item.ModuleIconStyle.EndsWith("rounded") ? "-rounded.svg" : "-squared.svg"));
         if (!string.IsNullOrEmpty(CustomPathFor(item))) return CustomPathFor(item);
         if (item.IsAutoUsbPin)
         {
@@ -611,7 +655,7 @@ internal static class IconService
             && Path.GetExtension(executable).Equals(".exe", StringComparison.OrdinalIgnoreCase)) return executable;
         return item.Kind == ItemKind.Application && !string.IsNullOrEmpty(item.AppUserModelId) ? "shell:AppsFolder\\" + item.AppUserModelId : item.Target;
     }
-    public static string CustomPathFor(DockItem item) => item.Kind == ItemKind.RecycleBin
+    public static string CustomPathFor(DockItem item) => !string.IsNullOrEmpty(item.ModuleIconStyle) && item.ModuleIconStyle != "custom" ? "" : item.Kind == ItemKind.RecycleBin
         ? RecycleCustomPath(item, ShellService.RecycleCount() > 0, darkTheme)
         : darkTheme && !string.IsNullOrWhiteSpace(item.DarkModeIcon) ? item.DarkModeIcon : item.CustomIcon;
     internal static string RecycleCustomPath(DockItem item, bool full, bool dark)

@@ -88,11 +88,11 @@ public partial class App : Application
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
         Dock = new DockWindow();
-        Program.CommandReceived += command => Dock.DispatcherQueue.TryEnqueue(() => Dock.HandleCommand(command));
         Dock.StartupReady += () => Dock.DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
         {
             SyncDocks();
             Dock.HandleCommand(Program.StartupCommand);
+            Program.ReadyForCommands(command => Dock.DispatcherQueue.TryEnqueue(() => Dock.HandleCommand(command)));
             monitorTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
             monitorTimer.Tick += (_, _) => SyncDocks(); monitorTimer.Start();
             CheckStartupRegistration();

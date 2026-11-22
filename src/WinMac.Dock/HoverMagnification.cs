@@ -457,7 +457,7 @@ internal sealed partial class DockWindow
                         slot.GroupShift.Y = (bottom ? slot.HitBounds.Bottom + slot.GroupInsets.Bottom - badge.Height : slot.HitBounds.Top - topInset) - slot.GroupOrigin.Y;
                     }
                     bool downloadedIndicator = slot.Element is Button downloadButton && downloadIndicators.ContainsKey(downloadButton);
-                    if (downloadedIndicator && slot.Indicator != null) slot.Indicator.Width = Math.Max(16, (DisplayIconSize + hoverWave.Growth[i]) * .6);
+                    if (downloadedIndicator && slot.Indicator != null) slot.Indicator.Width = AutomaticIndicatorWidth;
                     double indicatorX = Vertical && (downloadedIndicator || Settings.ForceIndicatorsToItemBase) ? (PositionEdge == DockEdge.Left ? 1 : -1) * hoverWave.Growth[i] / 2 : 0;
                     double indicatorY = downloadedIndicator || Settings.ForceIndicatorsToItemBase ? (Vertical ? hoverWave.Growth[i] / 2 : PositionEdge == DockEdge.Top ? hoverWave.Growth[i] : 0) : 0;
                     if (slot.IndicatorCarrier != null && slot.Indicator != null)
@@ -547,7 +547,7 @@ internal sealed partial class DockWindow
             if (slot.Indicator != null && slot.IndicatorCarrier != null && slot.IndicatorParent != null)
             {
                 slot.IndicatorCarrier.Children.Remove(slot.Indicator); hoverArtwork.Children.Remove(slot.IndicatorCarrier);
-                if (slot.Element is Button downloadButton && downloadIndicators.ContainsKey(downloadButton)) slot.Indicator.Width = Math.Max(16, DisplayIconSize * .6);
+                if (slot.Element is Button downloadButton && downloadIndicators.ContainsKey(downloadButton)) slot.Indicator.Width = AutomaticIndicatorWidth;
                 slot.Indicator.Margin = slot.IndicatorMargin; slot.Indicator.HorizontalAlignment = slot.IndicatorHorizontal; slot.Indicator.VerticalAlignment = slot.IndicatorVertical;
                 slot.IndicatorParent.Children.Insert(Math.Min(slot.IndicatorIndex, slot.IndicatorParent.Children.Count), slot.Indicator);
             }

@@ -82,6 +82,7 @@ internal sealed partial class SettingsWindow
                 .FirstOrDefault(item => Equals(item.Tag, result.Category));
             if (destination == null) return;
             settingsNavigation.SelectedItem = destination;
+            if (result.Label == "Check for updates") CheckForUpdates();
             if (result.Target == null)
             {
                 EnsureItemSettingsPage(result.Category);

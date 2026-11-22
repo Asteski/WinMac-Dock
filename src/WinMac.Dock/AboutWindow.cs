@@ -5,7 +5,7 @@ using Microsoft.UI.Xaml.Media;
 namespace WinMac.Dock;
 internal sealed partial class DockWindow
 {
-    internal const string DisplayVersion = "v1.0.0-RC3";
+    internal const string DisplayVersion = "1.0.0";
     private Window? aboutWindow;
     internal const string AboutGlyph = "\uE946";
     private nint aboutOwner;

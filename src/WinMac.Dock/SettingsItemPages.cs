@@ -75,6 +75,12 @@ internal sealed partial class SettingsWindow
         }
     }
 
+    internal void RefreshModuleSettings()
+    {
+        categories.Remove("Modules");
+        if (selectedCategory == "Modules") ShowCategory("Modules");
+    }
+
     private void AddApplicationSort(List<(string Title, DockItem Item, StackPanel Group, UIElement Card)> cards)
     {
         var sort = new ComboBox
@@ -163,7 +169,34 @@ internal sealed partial class SettingsWindow
         foreach (var item in dock.Settings.Items)
             if (item.Kind == kind && !item.IsAutoUsbPin && !item.IsDownloadedPin
                 && !DockWindow.IsDownloads(item) && !DockWindow.IsFileExplorer(item) && !ShellService.IsSnippingTool(item))
-                yield return (ShellService.IsMicrosoftStore(item) ? "Store" : item.Name, item, null);
+                yield return (ShellService.IsMicrosoftStore(item) ? "Store" : page == "Applications" ? ApplicationSettingsName(item) : item.Name, item, null);
+    }
+
+    private List<DockItem>? settingsInstalledApps;
+    private string ApplicationSettingsName(DockItem item)
+    {
+        if (ShellService.IsTaskManager(item)) return "Task Manager";
+        if (ShellService.IsXbox(item)) return "Xbox";
+        if (ShellService.IsSystemSettings(item)) return "Settings";
+        try
+        {
+            settingsInstalledApps ??= ShellService.InstalledApps();
+            var registered = settingsInstalledApps.FirstOrDefault(app =>
+                !string.IsNullOrWhiteSpace(item.AppUserModelId) && string.Equals(app.AppUserModelId, item.AppUserModelId, StringComparison.OrdinalIgnoreCase));
+            if (registered != null) return registered.Name;
+            string path = string.IsNullOrWhiteSpace(item.ExecutablePath) ? item.Target : item.ExecutablePath;
+            // Frame-host metadata describes Windows' container, not the hosted app.
+            if (System.IO.Path.GetFileName(path).Equals("ApplicationFrameHost.exe", StringComparison.OrdinalIgnoreCase)) return item.Name;
+            if (System.IO.File.Exists(path) && System.IO.Path.GetExtension(path).Equals(".exe", StringComparison.OrdinalIgnoreCase))
+            {
+                var info = System.Diagnostics.FileVersionInfo.GetVersionInfo(path);
+                if (!string.IsNullOrWhiteSpace(info.FileDescription)) return info.FileDescription;
+                if (!string.IsNullOrWhiteSpace(info.ProductName)) return info.ProductName;
+                return System.IO.Path.GetFileNameWithoutExtension(path);
+            }
+        }
+        catch { }
+        return item.Name;
     }
 
     private IEnumerable<string> ItemSettingsSearchLabels(string page)
@@ -270,7 +303,7 @@ internal sealed partial class SettingsWindow
         if (ShellService.IsXbox(item))
             return new FontIcon { Glyph = "\uE3E3", FontSize = 16, FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("ms-appx:///assets/fonts/XboxFluent.ttf#Xbox Fluent") };
         if (ShellService.IsSnippingTool(item))
-            return new FontIcon { Glyph = "\uF406", FontSize = 16, FontFamily = new Microsoft.UI.Xaml.Media.FontFamily(SettingsIconFont) };
+            return new FontIcon { Glyph = "\uF406", FontSize = 16, FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("ms-appx:///assets/fonts/SnSkFluent.ttf#Snip and Sketch Fluent Icons") };
         if (ShellService.IsTerminal(item) || IsWsl(item))
         {
             var terminal = DockWindow.Glyph("\uF1FD");
@@ -544,14 +577,14 @@ internal sealed partial class SettingsWindow
         if (item.Kind == ItemKind.RecycleBin)
         {
             var defaults = DockWindow.DefaultSpecialItem("recyclebin");
-            Icon("Empty icon", item.RecycleEmptyIcon, value => item.RecycleEmptyIcon = value, defaults.RecycleEmptyIcon);
-            Icon("Full icon", item.RecycleFullIcon, value => item.RecycleFullIcon = value, defaults.RecycleFullIcon);
-            Icon("Dark empty icon", item.RecycleEmptyDarkIcon, value => item.RecycleEmptyDarkIcon = value, defaults.RecycleEmptyDarkIcon);
-            Icon("Dark full icon", item.RecycleFullDarkIcon, value => item.RecycleFullDarkIcon = value, defaults.RecycleFullDarkIcon);
             Toggle("Confirm before emptying", item.ConfirmRecycleBinEmpty, value => item.ConfirmRecycleBinEmpty = value);
             Toggle("Play Recycle Bin sounds", item.PlayRecycleBinSounds, value => item.PlayRecycleBinSounds = value);
             Sound("Move to Recycle Bin sound", item.RecycleDropSoundPath, path => item.RecycleDropSoundPath = path, empty: false);
             Sound("Empty Recycle Bin sound", item.RecycleEmptySoundPath, path => item.RecycleEmptySoundPath = path, empty: true);
+            Icon("Empty icon", item.RecycleEmptyIcon, value => item.RecycleEmptyIcon = value, defaults.RecycleEmptyIcon);
+            Icon("Full icon", item.RecycleFullIcon, value => item.RecycleFullIcon = value, defaults.RecycleFullIcon);
+            Icon("Dark empty icon", item.RecycleEmptyDarkIcon, value => item.RecycleEmptyDarkIcon = value, defaults.RecycleEmptyDarkIcon);
+            Icon("Dark full icon", item.RecycleFullDarkIcon, value => item.RecycleFullDarkIcon = value, defaults.RecycleFullDarkIcon);
             return;
         }
 
@@ -589,6 +622,27 @@ internal sealed partial class SettingsWindow
                 Changed();
             };
             AddCardRow(label, menu);
+        }
+        if (item.Kind is ItemKind.StartMenu or ItemKind.Search or ItemKind.TaskView)
+        {
+            string[] labels = ModuleIconPresentation.Labels(item.Kind);
+            string[] styles = ModuleIconPresentation.Styles(item.Kind);
+            string style = ModuleIconPresentation.SelectedStyle(item);
+            var choice = new ComboBox { ItemsSource = labels, SelectedIndex = Math.Max(0, Array.IndexOf(styles, style)) };
+            AddCardRow("Icon style", choice);
+            Toggle("Disable icon animation", item.DisableModuleIconAnimation, value => item.DisableModuleIconAnimation = value);
+            var animationRow = body.Children[^1];
+            int iconsStart = body.Children.Count;
+            void UpdateIconControls()
+            {
+                animationRow.Visibility = choice.SelectedIndex >= 0 && ModuleIconPresentation.Animated(styles[choice.SelectedIndex]) ? Visibility.Visible : Visibility.Collapsed;
+                for (int i = iconsStart; i < body.Children.Count; i++) body.Children[i].Visibility = choice.SelectedIndex == styles.Length - 1 ? Visibility.Visible : Visibility.Collapsed;
+            }
+            choice.SelectionChanged += (_, _) => { if (choice.SelectedIndex < 0) return; item.ModuleIconStyle = styles[choice.SelectedIndex]; UpdateIconControls(); Changed(); };
+            Icon("Default / light icon", item.CustomIcon, value => item.CustomIcon = value);
+            Icon("Dark icon", item.DarkModeIcon, value => item.DarkModeIcon = value);
+            UpdateIconControls();
+            return;
         }
         Icon("Default / light icon", item.CustomIcon, value => item.CustomIcon = value);
         Icon("Dark icon", item.DarkModeIcon, value => item.DarkModeIcon = value);

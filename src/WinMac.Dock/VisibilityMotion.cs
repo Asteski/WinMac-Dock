@@ -26,7 +26,7 @@ internal sealed partial class DockWindow
         visibilitySliding = true; root.Opacity = 1;
         root.RenderTransform = visibilityShift;
         Reposition(false);
-        if (Native.Bounds(Handle) != hostBounds) Native.SetWindowPos(Handle, -1, hostBounds.Left, hostBounds.Top, hostBounds.Width, hostBounds.Height, 0x10 | 0x40);
+        if (Native.Bounds(Handle) != hostBounds) Native.SetWindowPos(Handle, DockZOrderTarget, hostBounds.Left, hostBounds.Top, hostBounds.Width, hostBounds.Height, 0x10 | 0x40);
         visibilityStamp = Stopwatch.GetTimestamp();
         if (immediate || !Motion || Settings.AnimationMs == 0) { FinishVisibilityAnimation(); return; }
         PaintVisibilityFrame();
@@ -45,7 +45,7 @@ internal sealed partial class DockWindow
         // WinUI/shell position notifications can arrive after changing edge
         // or appbar reservation. Repair that one-time move before drawing.
         if (Native.Bounds(Handle) != hostBounds)
-            Native.SetWindowPos(Handle, -1, hostBounds.Left, hostBounds.Top, hostBounds.Width, hostBounds.Height, 0x10 | 0x40);
+            Native.SetWindowPos(Handle, DockZOrderTarget, hostBounds.Left, hostBounds.Top, hostBounds.Width, hostBounds.Height, 0x10 | 0x40);
         var panel = DockGeometry.Slide(resting, PositionEdge, visibilityFraction, Settings.FloatingGap, keepEdgeTrigger: false);
         int dx = panel.Left - resting.Left, dy = panel.Top - resting.Top;
         // The input envelope stays fixed; the native material frame follows
@@ -61,6 +61,7 @@ internal sealed partial class DockWindow
         visibilityShift.X = visibilityShift.Y = 0;
         materialHostBounds = default;
         root.Opacity = hidden ? 0 : 1;
+        deferStartupReservation = false;
         Reposition(true);
         SyncShellAnimatedIcons(settleVisibility: true);
     }

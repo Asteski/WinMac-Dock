@@ -43,6 +43,7 @@ internal sealed partial class DockWindow : Window
     private readonly Native.SubclassProc subclass;
     private readonly UISettings uiSettings = new();
     private readonly AccessibilitySettings accessibility = new();
+    private bool highContrastSubscribed;
     private readonly System.Windows.Forms.NotifyIcon tray;
     private readonly AppBar appbar;
     private MonitorData monitor = null!;
@@ -267,27 +268,48 @@ internal sealed partial class DockWindow : Window
         });
         Closed += (_, _) => trayClickTimer.Stop();
         tracker.WindowMinimizing += handle => RecordWindowMinimize(handle);
-        tracker.Changed += () => DispatcherQueue.TryEnqueue(() => { if (!reconcileTimer.IsEnabled) reconcileTimer.Start(); });
-        tracker.ForegroundChanged += () => DispatcherQueue.TryEnqueue(() => { DismissFlyoutsOnExternalFocus(); EvaluateVisibility(); RetryForegroundWindowThumbnail(); });
+        tracker.Changed += () => { if (!fullscreenIdleActive) DispatcherQueue.TryEnqueue(() => { if (!fullscreenIdleActive && !reconcileTimer.IsEnabled) reconcileTimer.Start(); }); };
+        tracker.ForegroundChanged += () => DispatcherQueue.TryEnqueue(() => { UpdateFullscreenLayering(foregroundChanged: true); DismissFlyoutsOnExternalFocus(); EvaluateVisibility(); UpdateFullscreenIdle(); RetryForegroundWindowThumbnail(); });
         reconcileTimer.Tick += (_, _) => { reconcileTimer.Stop(); Reconcile(); };
         visibilityTimer.Tick += (_, _) =>
         {
             tracker.ObserveForeground();
             CheckForegroundThumbnail();
-            if (IndicatorForeground() != lastStyledForeground && !reconcileTimer.IsEnabled) reconcileTimer.Start();
+            if (!fullscreenIdleActive && IndicatorForeground() != lastStyledForeground && !reconcileTimer.IsEnabled) reconcileTimer.Start();
             EvaluateVisibility();
-            MaintainZOrder();
+            UpdateFullscreenIdle();
+            if (!fullscreenIdleActive) MaintainZOrder();
         };
-        themeTimer.Tick += (_, _) => { if (ReadThemeIdentity() != themeIdentity || renderedMotionState != $"{Motion}|{EffectiveIconHighlights}") UpdateTheme(); };
-        safetyTimer.Tick += (_, _) => { EnsureDockIsNotMinimized(); Reconcile(); UpdateRecycle(); _ = RefreshPinArtwork(); };
+        themeTimer.Tick += (_, _) => { if (!fullscreenIdleActive && (ReadThemeIdentity() != themeIdentity || renderedMotionState != $"{Motion}|{EffectiveIconHighlights}")) UpdateTheme(); };
+        safetyTimer.Tick += (_, _) => { if (fullscreenIdleActive) return; EnsureDockIsNotMinimized(); Reconcile(); UpdateRecycle(); _ = RefreshPinArtwork(); };
         recycleTimer.Tick += (_, _) => UpdateRecycle();
         InitializeDesktopPeek();
         Closed += (_, _) => Cleanup();
-        root.ActualThemeChanged += (_, _) => DispatcherQueue.TryEnqueue(() => { UpdateChrome(); Reconcile(); });
-        uiSettings.ColorValuesChanged += (_, _) => DispatcherQueue.TryEnqueue(UpdateTheme);
-        uiSettings.AdvancedEffectsEnabledChanged += (_, _) => DispatcherQueue.TryEnqueue(UpdateTheme);
+        root.ActualThemeChanged += (_, _) => DispatcherQueue.TryEnqueue(() => { if (closing) return; UpdateChrome(); Reconcile(); });
+        uiSettings.ColorValuesChanged += OnSystemThemeChanged;
+        uiSettings.AdvancedEffectsEnabledChanged += OnSystemThemeChanged;
         // Some unpackaged Windows builds do not expose this WinRT event; WM_SETTINGCHANGE remains authoritative.
-        try { accessibility.HighContrastChanged += (_, _) => DispatcherQueue.TryEnqueue(UpdateTheme); } catch (COMException) { }
+        try { accessibility.HighContrastChanged += OnHighContrastChanged; highContrastSubscribed = true; } catch (COMException) { }
+    }
+
+    private void OnSystemThemeChanged(UISettings sender, object args) => QueueSystemThemeRefresh();
+    private void OnHighContrastChanged(AccessibilitySettings sender, object args) => QueueSystemThemeRefresh();
+    private void QueueSystemThemeRefresh() => DispatcherQueue.TryEnqueue(() =>
+    {
+        // A callback may already be queued when cleanup removes the subscription.
+        if (!closing) UpdateTheme();
+    });
+
+    private void UnsubscribeSystemThemeEvents()
+    {
+        // One unavailable WinRT event must not prevent the rest of close cleanup.
+        try { uiSettings.ColorValuesChanged -= OnSystemThemeChanged; } catch (COMException ex) { Log.Write(ex); }
+        try { uiSettings.AdvancedEffectsEnabledChanged -= OnSystemThemeChanged; } catch (COMException ex) { Log.Write(ex); }
+        if (highContrastSubscribed)
+        {
+            highContrastSubscribed = false;
+            try { accessibility.HighContrastChanged -= OnHighContrastChanged; } catch (COMException ex) { Log.Write(ex); }
+        }
     }
 
     private DockSettings LoadStartupSettings()
@@ -365,6 +387,7 @@ internal sealed partial class DockWindow : Window
         return menu;
     }
     private bool startupShellReady;
+    private bool deferStartupReservation = true;
     private readonly HashSet<Task> startupLoads = [];
     internal event Action? StartupReady;
     internal bool StartupComplete { get; private set; }
@@ -408,8 +431,14 @@ internal sealed partial class DockWindow : Window
             await WaitForStartupLoads();
             if (closing) return;
             StartupComplete = true;
+            if (Settings.AnimateDockOnStartup && !hidden && Motion && Settings.AnimationMs > 0 && !HasExternalFullscreenForeground())
+                AnimateVisibility(show: true);
+            else
+            {
+                deferStartupReservation = false;
+                Reposition(true);
+            }
 
-            
             AppWindow.Show(false);
             SetHoverClip();
             PaintMaterialSurface(0);
@@ -428,6 +457,7 @@ internal sealed partial class DockWindow : Window
     private void UpdateTheme() => UpdateTheme(reconcile: true);
     private void UpdateTheme(bool reconcile)
     {
+        if (closing) return;
         var bg = uiSettings.GetColorValue(UIColorType.Background);
         root.RequestedTheme = WindowsUsesDarkApps() ? ElementTheme.Dark : ElementTheme.Light;
         if (!accessibility.HighContrast && Settings.Theme != DockTheme.System)
@@ -472,17 +502,18 @@ internal sealed partial class DockWindow : Window
     }
     public void Save()
     {
-        if ((App.Dock ?? this).settingsWindow?.HasPendingChanges == true) return;
-        SaveSettingsCommit();
+        var editor = (App.Dock ?? this).settingsWindow;
+        SaveSettingsCommit(editor?.SettingsForBackgroundSave());
     }
 
-    internal bool SaveSettingsCommit()
+    internal bool SaveSettingsCommit(DockSettings? snapshot = null)
     {
         bool saved = false;
         TryAction(() =>
         {
-            foreach (var item in Settings.Items) ItemPreferences.Remember(Settings, item, SpecialItemKey(item));
-            store.Save(Settings);
+            var savedSettings = snapshot ?? Settings;
+            foreach (var item in savedSettings.Items) ItemPreferences.Remember(savedSettings, item, SpecialItemKey(item));
+            store.Save(savedSettings);
             saved = true;
         });
         if (saved) App.ScheduleDockSync(this);
@@ -543,9 +574,11 @@ internal sealed partial class DockWindow : Window
     }
 
     public void ApplySettings() => ApplySettings(persist: true);
+    internal void RefreshModuleSettings() => (App.Dock ?? this).settingsWindow?.RefreshModuleSettings();
     internal void ApplySettings(bool persist)
     {
         if (closing) return;
+        UpdateFullscreenIdle();
         monitor = ResolveDisplay();
         tray.Visible = MonitorOverride == null && Settings.ShowTrayIcon;
         Settings.Validate();
@@ -680,6 +713,7 @@ internal sealed partial class DockWindow : Window
 
     private void Reconcile()
     {
+        if (fullscreenIdleActive) return;
         if (initialized && Native.IsIconic(Handle) && HasExternalFullscreenForeground()) return;
         if (closing || !initialized) return;
         if (reconciling || positioning || hoverPainting || hoverGeometryRepairing || hoverRebuilding || rowPainting || rowFinishing)
@@ -721,8 +755,10 @@ internal sealed partial class DockWindow : Window
             bool fitChanged = UpdateAutoFit(entries);
             var liveTasks = entries.Where(e => !e.IsPinned).Select(e => e.Item.Id).ToHashSet();
             if (startupShellReady) SyncStackWatchers();
-            var signature = IconPixels + ":" + ButtonSize + ":" + DisplaySpacing + ":" + dockOverflow + ":" + string.Join("|", entries.Select(x => $"{x.Item.Id}:{string.Join(',', x.Windows.Select(w => w.Handle))}:{(x.IsPinned ? x.Item.Name : "")}:{x.Item.CustomIcon}:{x.Item.DarkModeIcon}:{x.Item.ShowThumbnail}:{x.Item.AttachedDriveKind}:{x.Item.Folder.StackIcon}:{x.Item.Folder.ShowDownloadsIconUnderStack}:{x.Item.Folder.Sort}:{x.Item.Folder.Descending}:{MissingTargetForRow(x)}"));
-            signature += ":" + Settings.ShowUngroupedWindowThumbnails + ":" + Settings.GroupWindows + ":" + Settings.UseExplorerLocationThumbnailBadge;
+            var signature = IconPixels + ":" + ButtonSize + ":" + DisplaySpacing + ":" + dockOverflow + ":" + string.Join("|", entries.Select(x => $"{x.Item.Id}:{string.Join(',', x.Windows.Select(w => w.Handle))}:{(x.IsPinned ? x.Item.Name : "")}:{x.Item.ModuleIconStyle}:{x.Item.CustomIcon}:{x.Item.DarkModeIcon}:{x.Item.ShowThumbnail}:{x.Item.AttachedDriveKind}:{x.Item.Folder.StackIcon}:{x.Item.Folder.ShowDownloadsIconUnderStack}:{x.Item.Folder.Sort}:{x.Item.Folder.Descending}:{MissingTargetForRow(x)}"));
+            signature += ":" + Settings.ShowUngroupedWindowThumbnails + ":" + Settings.GroupWindows + ":" + Settings.UseExplorerLocationThumbnailBadge + ":" + Settings.ShowThumbnailAppBadges + ":" + Settings.AutomaticItemIndicatorShape;
+            signature += ":" + Settings.ShowRunningAppIndicators + ":" + Settings.ShowGroupedWindowIndicators;
+            signature += ":" + Settings.ShowAutomaticPinIndicators + ":" + Settings.PillSize;
             PruneWindowThumbnails(windows);
             if (Settings.ShowUngroupedWindowThumbnails)
                 signature += ":" + string.Join(',', entries.Where(UsesWindowThumbnail).Select(entry =>
@@ -802,7 +838,7 @@ internal sealed partial class DockWindow : Window
                 {
                     bool selected = entry.Windows.Any(w => w.Handle == active);
                     int length = Settings.ItemIndicatorShape != ItemIndicatorShape.Pill ? 4
-                        : selected ? (Settings.WindowsTaskbarHighlights ? 14 : 16) : 6;
+                        : IndicatorGeometry.PillLength(Settings.PillSize, selected, DisplayIconSize);
                     bool rotated = Vertical && !Settings.ForceIndicatorsToItemBase;
                     SetIndicatorSize(indicator, rotated ? ItemIndicatorThickness : length, rotated ? length : ItemIndicatorThickness);
                     bool accent = Settings.IndicatorAccent == IndicatorAccentMode.All || (selected && Settings.IndicatorAccent == IndicatorAccentMode.Focused);
@@ -844,11 +880,15 @@ internal sealed partial class DockWindow : Window
     private readonly Dictionary<Button, Border> downloadIndicators = [];
     private bool UseSquareIndicators => !Settings.RoundedCorners && Settings.SquareGroupIndicatorsWhenUnrounded;
     private int ItemIndicatorThickness => Settings.ItemIndicatorShape == ItemIndicatorShape.Pill ? 3 : 4;
+    private ItemIndicatorShape AutomaticIndicatorShape => Settings.AutomaticItemIndicatorShape == ItemIndicatorShape.Default
+        ? ItemIndicatorShape.Pill : Settings.AutomaticItemIndicatorShape ?? Settings.ItemIndicatorShape;
+    private int AutomaticIndicatorThickness => AutomaticIndicatorShape == ItemIndicatorShape.Pill ? 3 : 4;
+    private double AutomaticIndicatorWidth => IndicatorGeometry.AutomaticLength(Settings.AutomaticItemIndicatorShape, Settings.ItemIndicatorShape, Settings.PillSize, DisplayIconSize);
     private CornerRadius ItemIndicatorRadius => new(UseSquareIndicators ? 0 : ItemIndicatorThickness / 2d);
 
-    private void ConfigureCircleIndicatorRendering(Border indicator)
+    private void ConfigureCircleIndicatorRendering(Border indicator, ItemIndicatorShape? shape = null)
     {
-        if (Settings.ItemIndicatorShape != ItemIndicatorShape.Circle) return;
+        if ((shape ?? Settings.ItemIndicatorShape) != ItemIndicatorShape.Circle) return;
         indicator.UseLayoutRounding = true;
         var visual = Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(indicator);
         visual.IsPixelSnappingEnabled = true;
@@ -915,8 +955,9 @@ internal sealed partial class DockWindow : Window
         {
             var downloadIndicator = new Border
             {
-                Width = Settings.ItemIndicatorShape == ItemIndicatorShape.Pill ? Math.Max(16, DisplayIconSize * .6) : 4,
-                Height = ItemIndicatorThickness, CornerRadius = ItemIndicatorRadius,
+                Width = AutomaticIndicatorWidth,
+                Visibility = Settings.ShowAutomaticPinIndicators ? Visibility.Visible : Visibility.Collapsed,
+                Height = AutomaticIndicatorThickness, CornerRadius = new CornerRadius(UseSquareIndicators ? 0 : AutomaticIndicatorThickness / 2d),
                 Background = new SolidColorBrush(entry.Item.CapturePin switch
                 {
                     CapturePinKind.Screenshot => Windows.UI.Color.FromArgb(255, 0x23, 0xA5, 0xE4),
@@ -929,19 +970,19 @@ internal sealed partial class DockWindow : Window
             };
             downloadIndicators[button] = downloadIndicator;
             content.Children.Add(downloadIndicator);
-            ConfigureCircleIndicatorRendering(downloadIndicator);
+            ConfigureCircleIndicatorRendering(downloadIndicator, AutomaticIndicatorShape);
         }
-        if (entry.IsPinned && entry.Window != null)
+        if (Settings.ShowRunningAppIndicators && entry.IsPinned && entry.Window != null)
         {
             bool rotatedIndicator = Vertical && !Settings.ForceIndicatorsToItemBase;
-            int length = Settings.ItemIndicatorShape == ItemIndicatorShape.Pill ? 6 : 4;
+            int length = Settings.ItemIndicatorShape == ItemIndicatorShape.Pill ? IndicatorGeometry.PillLength(Settings.PillSize, false) : 4;
             var dot = new Border { Width = rotatedIndicator ? ItemIndicatorThickness : length, Height = rotatedIndicator ? length : ItemIndicatorThickness, CornerRadius = ItemIndicatorRadius, Background = (Brush)Application.Current.Resources["SystemControlHighlightAccentBrush"], HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Bottom, IsHitTestVisible = false };
             PositionIndicator(dot);
             runningIndicators[button] = dot;
             content.Children.Add(dot);
             ConfigureCircleIndicatorRendering(dot);
         }
-        if (entry.Windows.Count > 1)
+        if (Settings.ShowGroupedWindowIndicators && entry.Windows.Count > 1)
         {
             string count = entry.Windows.Count > 99 ? "99+" : entry.Windows.Count.ToString();
             double side = Math.Min(DisplayIconSize, Math.Max(14, count.Length * 6 + 4));
@@ -1325,6 +1366,7 @@ internal sealed partial class DockWindow : Window
         if (!Motion) return;
         if (shellIcons.FirstOrDefault(item => ReferenceEquals(item.Artwork, element)) is { } shell)
         {
+            if (shell.Entry.Item.DisableModuleIconAnimation) return;
             if (shell.Entry.Item.Kind == ItemKind.StartMenu) shell.Animation.PulseClick(Settings.RunningClickAnimationMs);
             return;
         }
@@ -1645,10 +1687,21 @@ internal sealed partial class DockWindow : Window
     }
     private async Task LoadIcon(DockItem item, Microsoft.UI.Xaml.Controls.Image image, FontIcon fallback, Grid host, bool pinned, nint explorerWindow = 0)
     {
-        int artworkPixels = image.HorizontalAlignment == HorizontalAlignment.Right && image.VerticalAlignment == VerticalAlignment.Bottom
-            ? Math.Max(16, (int)Math.Ceiling(image.Width * scale * 2)) : IconPixels;
         var revision = themeRevision;
         var request = new object(); image.Tag = request;
+        if (ModuleIconPresentation.IsModern(item))
+        {
+            var artwork = await ModuleIconPresentation.ModernArtworkAsync(Handle, root.RequestedTheme == ElementTheme.Dark);
+            if (closing || revision != themeRevision || !ReferenceEquals(image.Tag, request)) return;
+            if (artwork != null && !closing)
+            {
+                image.Source = artwork;
+                fallback.Visibility = Visibility.Collapsed;
+                return;
+            }
+        }
+        int artworkPixels = image.HorizontalAlignment == HorizontalAlignment.Right && image.VerticalAlignment == VerticalAlignment.Bottom
+            ? Math.Max(16, (int)Math.Ceiling(image.Width * scale * 2)) : IconPixels;
         if (item.IsDownloadedPin)
         {
             pendingPinArtwork.Add(item.Id);
@@ -1852,6 +1905,7 @@ internal sealed partial class DockWindow : Window
     }
     private void UpdateRecycle()
     {
+        if (fullscreenIdleActive) return;
         if (!startupShellReady) return;
 
         var iconIdentity = IconService.ReadThemeIdentity();
@@ -1922,7 +1976,8 @@ internal sealed partial class DockWindow : Window
             scroll.HorizontalScrollBarVisibility = Vertical ? ScrollBarVisibility.Disabled : ScrollBarVisibility.Hidden;
             scroll.VerticalScrollBarVisibility = Vertical ? ScrollBarVisibility.Hidden : ScrollBarVisibility.Disabled;
             scroll.HorizontalScrollMode = Vertical ? ScrollMode.Disabled : ScrollMode.Enabled; scroll.VerticalScrollMode = Vertical ? ScrollMode.Enabled : ScrollMode.Disabled;
-            var reserve = VisibilityPolicy.Reserve(Settings, manuallyHidden, DisplayHideMode);
+            // Let the startup slide finish before resizing other applications.
+            var reserve = !deferStartupReservation && VisibilityPolicy.Reserve(Settings, manuallyHidden, DisplayHideMode);
             if (reservation)
             {
                 appbar.Update(monitor, DockGeometry.Pixels(baseHeight, scale) + Settings.FloatingGap, reserve, PositionEdge);
@@ -2003,7 +2058,7 @@ internal sealed partial class DockWindow : Window
                 
                 Native.ClearDockRegion(Handle);
                 hoverClip = null;
-                Native.SetWindowPos(Handle, -1, bounds.Left, bounds.Top, bounds.Width, bounds.Height, 0x10u | (StartupComplete ? 0x40u : 0u));
+                Native.SetWindowPos(Handle, DockZOrderTarget, bounds.Left, bounds.Top, bounds.Width, bounds.Height, 0x10u | (StartupComplete ? 0x40u : 0u));
             }
             if (!hoverRebuilding)
             {
@@ -2057,9 +2112,21 @@ internal sealed partial class DockWindow : Window
         settingsWindow?.SyncTaskbarStatus(windowsTaskbar.Error);
         return changed;
     }
+    private nint lastAllowedFullscreenWindow;
     private void EvaluateVisibility()
     {
         if (!initialized || !StartupComplete || closing || monitor == null) return;
+        UpdateFullscreenLayering();
+        if (IsWindowsSearchWindow(Native.GetForegroundWindow()))
+        {
+            hideSince = revealSince = manualHideSince = null;
+            return;
+        }
+        if (fullscreenUnderlay != 0 && Environment.TickCount64 < fullscreenRestoreUntil)
+        {
+            HideDock(immediate: true);
+            return;
+        }
         if (!positioning && laidOutSpanning != SpanDockLengthActive())
         {
             TransitionDockSpan();
@@ -2096,7 +2163,17 @@ internal sealed partial class DockWindow : Window
         bool fullscreen = active != null && !active.Minimized && active.Bounds.Left <= monitor.Bounds.Left && active.Bounds.Top <= monitor.Bounds.Top && active.Bounds.Right >= monitor.Bounds.Right && active.Bounds.Bottom >= monitor.Bounds.Bottom;
         bool interacting = inDock || popupCount > 0 || dragging || (own && (settingsWindow != null || keyboardFocus));
         bool fullscreenExcluded = fullscreen && FullscreenExclusions.Contains(Settings, active);
-        if (fullscreen && !fullscreenExcluded && Settings.HideImmediatelyForFullscreen)
+        nint allowedFullscreenWindow = fullscreen && CanRevealAboveFullscreen(active) ? foreground : 0;
+        bool enteringAllowedFullscreen = allowedFullscreenWindow != 0 && allowedFullscreenWindow != lastAllowedFullscreenWindow;
+        lastAllowedFullscreenWindow = allowedFullscreenWindow;
+        if (enteringAllowedFullscreen && Settings.HideImmediatelyForAllowedFullscreen)
+        {
+            hideSince = revealSince = manualHideSince = null;
+            edgeActivation.Reset();
+            HideDock(immediate: true);
+            return;
+        }
+        if (fullscreen && !CanRevealAboveFullscreen(active) && Settings.HideImmediatelyForFullscreen)
         {
             hideSince = revealSince = manualHideSince = null;
             edgeActivation.Reset();
@@ -2104,7 +2181,7 @@ internal sealed partial class DockWindow : Window
             return;
         }
         bool attentionHold = AttentionRequiresDock(foreground);
-        if (attentionHold && (!fullscreen || fullscreenExcluded))
+        if (attentionHold && !fullscreen)
         {
             hideSince = revealSince = manualHideSince = null;
             if (hidden) ShowDock(restoreManualReservation: false);
@@ -2151,6 +2228,7 @@ internal sealed partial class DockWindow : Window
     }
     private void HideDock(bool immediate = false)
     {
+        gapInput?.SetEnabled(false);
         manualHideSince = null;
         if (hidden) { if (immediate && visibilitySliding) { visibilityTo = 1; FinishVisibilityAnimation(); } return; }
         ResetMagnification(); hidden = true;
@@ -2160,6 +2238,7 @@ internal sealed partial class DockWindow : Window
     // That keeps the appbar released until an explicit keyboard/tray show restores it.
     private void ShowDock(bool restoreManualReservation = true)
     {
+        SetFullscreenIdleActive(false);
         bool wasHidden = hidden;
         if (restoreManualReservation) manuallyHidden = false;
         hideSince = null; manualHideSince = null;
@@ -2476,7 +2555,6 @@ internal sealed partial class DockWindow : Window
                 menu.Items.Add(new MenuFlyoutSeparator());
             }
             Menu(menu, entry.Item.Kind == ItemKind.Spacer ? "Remove spacer" : "Remove separator", () => { UnpinItem(entry.Item); }, "\uE77A");
-            menu.Items.Add(new MenuFlyoutSeparator());
             AddDockSettingsMenu(menu);
             return menu;
         }
@@ -3100,7 +3178,7 @@ internal sealed partial class DockWindow : Window
         }
         settingsWindow = new SettingsWindow(this, identity);
         tracker.OwnTaskWindow = WinRT.Interop.WindowNative.GetWindowHandle(settingsWindow);
-        settingsWindow.Closed += (_, _) => { tracker.OwnTaskWindow = 0; settingsWindow = null; Reconcile(); ScheduleEditorMemoryCleanup(); };
+        settingsWindow.Closed += (_, _) => { tracker.OwnTaskWindow = 0; settingsWindow = null; Reconcile(); };
          settingsWindow.Activate(); Reconcile();
     }
     private void ShowAppPicker() { if (MonitorOverride != null) { App.Dock?.ShowAppPicker(); return; } ShowSettings(); settingsWindow!.ShowApps(); }
@@ -3120,19 +3198,9 @@ internal sealed partial class DockWindow : Window
         {
             if (!ReferenceEquals(propertiesWindow, editor)) return;
             propertiesWindow = null;
-            ScheduleEditorMemoryCleanup();
         };
          editor.Activate();
         return editor;
-    }
-    private void ScheduleEditorMemoryCleanup()
-    {
-        // Let WinUI finish closing the window before collecting its detached controls.
-        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
-        {
-            if (closing || settingsWindow != null || propertiesWindow != null) return;
-            GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
-        });
     }
     public void TryAction(Action action)
     {
@@ -3191,7 +3259,12 @@ internal sealed partial class DockWindow : Window
     }
     private void Cleanup()
     {
-        if (closing) return; ClearShellAnimatedIcons(); closing = true;  usbPinTimer.Stop(); StopRowTransition(); StopIndicatorAnimations(); StopHoverRendering(); downloadPinTimer.Stop(); downloadChangeTimer.Stop(); foreach (var watcher in downloadPinWatchers.Values) watcher.Dispose(); downloadPinWatchers.Clear(); downloadTrackers.Clear(); visibilityTimer.Stop(); reconcileTimer.Stop(); safetyTimer.Stop(); themeTimer.Stop(); recycleTimer.Stop();
+        if (closing) return;
+        // Stop delayed work and external notifications before disposing visuals.
+        closing = true;
+        fullscreenIdleResumeTimer.Stop();
+        UnsubscribeSystemThemeEvents();
+        ClearShellAnimatedIcons(); usbPinTimer.Stop(); StopRowTransition(); StopIndicatorAnimations(); StopHoverRendering(); downloadPinTimer.Stop(); downloadChangeTimer.Stop(); foreach (var watcher in downloadPinWatchers.Values) watcher.Dispose(); downloadPinWatchers.Clear(); downloadTrackers.Clear(); visibilityTimer.Stop(); reconcileTimer.Stop(); safetyTimer.Stop(); themeTimer.Stop(); recycleTimer.Stop();
         if (desktopPeekHook != 0) { Native.UnhookWinEvent(desktopPeekHook); desktopPeekHook = 0; }
         Native.SetPropW(Handle, "WinMac.Dock.HideWindowsTaskbar", 0); windowsTaskbar.Dispose();
         EndOutsideItemDrag(false);

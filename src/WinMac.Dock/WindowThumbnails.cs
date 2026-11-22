@@ -11,11 +11,12 @@ namespace WinMac.Dock;
 
 internal sealed partial class DockWindow
 {
-    private sealed class WindowThumbnail(uint process, bool minimized, bool explorer, bool visualStudioCode)
+    private sealed class WindowThumbnail(uint process, bool minimized, bool explorer, bool preferForegroundCapture, bool console)
     {
         public uint Process { get; } = process;
         public bool Explorer { get; } = explorer;
-        public bool VisualStudioCode { get; } = visualStudioCode;
+        public bool PreferForegroundCapture { get; } = preferForegroundCapture;
+        public bool Console { get; } = console;
         public bool Minimized { get; set; } = minimized;
         public long RetryAfter { get; set; }
         public WriteableBitmap? Image { get; set; }
@@ -107,6 +108,7 @@ internal sealed partial class DockWindow
 
     private void RetryForegroundWindowThumbnail()
     {
+        if (fullscreenIdleActive) return;
         if (!Settings.ShowUngroupedWindowThumbnails) return;
         nint handle = Native.GetForegroundWindow();
         if (handle == 0 || !windowThumbnails.TryGetValue(handle, out var state)
@@ -120,6 +122,7 @@ internal sealed partial class DockWindow
 
     private void CheckForegroundThumbnail()
     {
+        if (fullscreenIdleActive) return;
         if (!Settings.ShowUngroupedWindowThumbnails) return;
         var handle = Native.GetForegroundWindow();
         if (!MinimizedOnly && windowThumbnails.TryGetValue(handle, out var state) && state.Image != null
@@ -136,6 +139,7 @@ internal sealed partial class DockWindow
 
     private WindowThumbnail? RequestWindowSnapshot(TaskWindow window, bool captureOnRestore = false, bool refresh = false)
     {
+        if (fullscreenIdleActive) return null;
         nint handle = window.Handle;
         Native.GetWindowThreadProcessId(handle, out uint process);
         if (process == 0) return null;
@@ -144,9 +148,14 @@ internal sealed partial class DockWindow
         if (!windowThumbnails.TryGetValue(handle, out var state) || state.Process != process)
         {
             var executable = Path.GetFileName(window.ExecutablePath);
+            bool console = window.ClassName is "ConsoleWindowClass" or "CASCADIA_HOSTING_WINDOW_CLASS"
+                || executable.Equals("WindowsTerminal.exe", StringComparison.OrdinalIgnoreCase)
+                || executable.Equals("WindowsTerminalPreview.exe", StringComparison.OrdinalIgnoreCase)
+                || executable.Equals("powershell.exe", StringComparison.OrdinalIgnoreCase)
+                || executable.Equals("pwsh.exe", StringComparison.OrdinalIgnoreCase);
             state = new WindowThumbnail(process, window.Minimized, IsExplorerWindow(window),
                 executable.Equals("Code.exe", StringComparison.OrdinalIgnoreCase)
-                || executable.Equals("Code - Insiders.exe", StringComparison.OrdinalIgnoreCase));
+                || executable.Equals("Code - Insiders.exe", StringComparison.OrdinalIgnoreCase) || console, console);
             windowThumbnails[handle] = state;
             captureNeeded = true;
         }
@@ -166,7 +175,7 @@ internal sealed partial class DockWindow
 
         // Explorer can paint its folder or drive icon instead of the window
         // when iconic. Preserve the last restored snapshot in that state.
-        if ((captureNeeded || refresh) && !(window.Minimized && state.Explorer)
+        if ((captureNeeded || refresh) && !(window.Minimized && (state.Explorer || state.Console))
             && (state.Capture == null || state.Capture.IsCompleted))
         {
             state.RetryAfter = Environment.TickCount64 + 1500;
@@ -179,9 +188,9 @@ internal sealed partial class DockWindow
     {
         try
         {
-            var snapshot = await LoadWindowSnapshot(handle, state.Process, state.Explorer, state.VisualStudioCode);
+            var snapshot = await LoadWindowSnapshot(handle, state.Process, state.Explorer, state.PreferForegroundCapture, () => fullscreenIdleActive || closing);
             Native.GetWindowThreadProcessId(handle, out uint process);
-            if (snapshot != null && !closing && process == state.Process
+            if (snapshot != null && !closing && !fullscreenIdleActive && process == state.Process
                 && windowThumbnails.TryGetValue(handle, out var current) && current == state)
             {
                 if (keepUntilMinimize && !state.Minimized) state.ForegroundFrame = snapshot;
@@ -219,6 +228,7 @@ internal sealed partial class DockWindow
 
     private void ShowWindowSnapshot(Grid host, Microsoft.UI.Xaml.Controls.Image appIcon, WriteableBitmap source, bool animateAppearance = false)
     {
+        appIcon.Visibility = Settings.ShowThumbnailAppBadges ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
         var preview = host.Children.OfType<Microsoft.UI.Xaml.Controls.Border>().FirstOrDefault(child => ReferenceEquals(child.Tag, windowPreviewTag));
         bool appearing = preview == null;
         if (preview == null)
@@ -254,7 +264,7 @@ internal sealed partial class DockWindow
         }
     }
 
-    private static async Task<WriteableBitmap?> LoadWindowSnapshot(nint handle, uint process, bool explorer, bool visualStudioCode)
+    private static async Task<WriteableBitmap?> LoadWindowSnapshot(nint handle, uint process, bool explorer, bool preferForegroundCapture, Func<bool> shouldStop)
     {
         byte[]? png = await Task.Run(async () =>
         {
@@ -262,14 +272,19 @@ internal sealed partial class DockWindow
             // Bound the number of calls and keep them off the UI thread.
             for (int attempt = 0; attempt < 3; attempt++)
             {
+                if (shouldStop()) return null;
                 if (!await windowCaptureSlots.WaitAsync(TimeSpan.FromSeconds(2))) return null;
                 byte[]? frame;
                 uint flags = explorer ? 2u : attempt switch { 1 => 3u, 2 => 0u, _ => 2u };
                 try
                 {
-                    frame = CaptureWindowThumbnail(handle, process, flags, explorer);
-                    if (frame == null && visualStudioCode && attempt == 0)
+                    if (shouldStop()) return null;
+                    frame = null;
+                    // Console hosts can stall PrintWindow or paint a blank GPU surface.
+                    // Capture the visible foreground frame before asking them to repaint.
+                    if (preferForegroundCapture && attempt == 0)
                         frame = CaptureWindowThumbnail(handle, process, flags, explorer, captureForegroundPixels: true);
+                    frame ??= CaptureWindowThumbnail(handle, process, flags, explorer);
                 }
                 finally { windowCaptureSlots.Release(); }
                 if (frame != null || !Native.IsWindow(handle)) return frame;

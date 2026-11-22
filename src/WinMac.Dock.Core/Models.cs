@@ -13,6 +13,8 @@ public enum ThumbnailCornerStyle { Dynamic, Rounded, Squared }
 public enum ManualRevealBehavior { TemporaryOverlay, RestoreReservation, Disabled }
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum DockTheme { System, Light, Dark }
+public enum TrayIconStyle { Default, Monochrome, AccentColour }
+public enum DockTintMode { Default, WindowsAccent, Custom }
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum DockMaterial { None, Acrylic, Mica, Default }
 [JsonConverter(typeof(JsonStringEnumConverter))]
@@ -36,7 +38,8 @@ public enum GroupedClickBehavior { ShowWindowList, ActivateLastUsed, Sequential 
 public enum GroupIndicatorCorner { TopRight, TopLeft, BottomRight, BottomLeft }
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum GroupIndicatorShape { Circle, Square, Squircle }
-public enum ItemIndicatorShape { Pill, Circle, Squircle } // Legacy Squircle values migrate to Circle.
+public enum ItemIndicatorShape { Pill, Circle, Squircle, Default } // Default is for automatic pins. Legacy Squircle values migrate to Circle.
+public enum IndicatorPillSize { Small, Medium, Large }
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum AttentionAnimation { Blink, HighBounce }
 [JsonConverter(typeof(JsonStringEnumConverter))]
@@ -108,6 +111,8 @@ public sealed record DockItem
     public string ExecutablePath { get; set; } = "";
     public string AppUserModelId { get; set; } = "";
     public string CustomIcon { get; set; } = "";
+    public string ModuleIconStyle { get; set; } = "";
+    public bool DisableModuleIconAnimation { get; set; }
     public string DarkModeIcon { get; set; } = "";
     public string RecycleEmptyIcon { get; set; } = "";
     public string RecycleFullIcon { get; set; } = "";
@@ -170,6 +175,7 @@ public sealed record DockSettings
     public int RevealDelayMs { get; set; } = 150;
     public HideMode HideMode { get; set; } = HideMode.Maximized;
     public bool StartHidden { get; set; }
+    public bool AnimateDockOnStartup { get; set; } = true;
     public bool HideWindowsTaskbar { get; set; }
     public bool PreventAttentionBlinking { get; set; }
     public AttentionAnimation AttentionAnimation { get; set; } = AttentionAnimation.HighBounce;
@@ -192,7 +198,10 @@ public sealed record DockSettings
     public bool StartAtLogin { get; set; }
     public bool AlwaysRunAsAdministrator { get; set; }
     public bool ShowTrayIcon { get; set; } = true;
+    public bool AllowDockAboveFullscreen { get; set; }
+    public bool HideImmediatelyForAllowedFullscreen { get; set; } = true;
     public bool UseMonochromeTrayIcon { get; set; }
+    public TrayIconStyle TrayIconStyle { get; set; }
     public bool TraySingleClickOpensSettings { get; set; }
     public bool ReduceMotion { get; set; }
     public bool MagnificationEnabled { get; set; } = true;
@@ -202,6 +211,7 @@ public sealed record DockSettings
     public bool ShowUngroupedWindowThumbnails { get; set; } = true;
     public ThumbnailCornerStyle ThumbnailCorners { get; set; }
     public bool UseExplorerLocationThumbnailBadge { get; set; }
+    public bool ShowThumbnailAppBadges { get; set; } = true;
     public GroupedClickBehavior GroupedClickBehavior { get; set; } = GroupedClickBehavior.ShowWindowList;
     public bool CombinePinnedIconsWithRunningApplications { get; set; } = true;
     public bool ShowItemsFromAllVirtualDesktops { get; set; }
@@ -211,6 +221,9 @@ public sealed record DockSettings
     public int IconSpacing { get; set; } = 6;
     public DockTheme Theme { get; set; } = DockTheme.System;
     public int BackgroundStrength { get; set; } = 65;
+    public DockTintMode TintMode { get; set; }
+    public string TintColour { get; set; } = "#0078D4";
+    public int TintStrength { get; set; } = 20;
     public DockMaterial Material { get; set; } = DockMaterial.Acrylic;
     public DockEdge Edge { get; set; } = DockEdge.Bottom;
     public DockAlignment Alignment { get; set; } = DockAlignment.Center;
@@ -234,6 +247,11 @@ public sealed record DockSettings
     public GroupIndicatorCorner GroupIndicatorCorner { get; set; } = GroupIndicatorCorner.TopRight;
     public GroupIndicatorShape GroupIndicatorShape { get; set; } = GroupIndicatorShape.Circle;
     public ItemIndicatorShape ItemIndicatorShape { get; set; }
+    public bool ShowRunningAppIndicators { get; set; } = true;
+    public bool ShowGroupedWindowIndicators { get; set; } = true;
+    public ItemIndicatorShape? AutomaticItemIndicatorShape { get; set; } = ItemIndicatorShape.Default;
+    public bool ShowAutomaticPinIndicators { get; set; } = true;
+    public IndicatorPillSize PillSize { get; set; } = IndicatorPillSize.Medium;
     public bool SquareGroupIndicatorsWhenUnrounded { get; set; } = true;
     [System.Text.Json.Serialization.JsonIgnore]
     public bool WindowsTaskbarHighlights { get => true; set { } }
@@ -261,6 +279,9 @@ public sealed record DockSettings
     public void Validate()
     {
         DisplayLayouts = new(DisplayLayouts ?? new(), StringComparer.OrdinalIgnoreCase);
+        if (!Enum.IsDefined(TrayIconStyle)) TrayIconStyle = TrayIconStyle.Default;
+        if (UseMonochromeTrayIcon && TrayIconStyle == TrayIconStyle.Default) TrayIconStyle = TrayIconStyle.Monochrome;
+        UseMonochromeTrayIcon = false;
         foreach (var key in DisplayLayouts.Keys.ToArray())
         {
             var layout = DisplayLayouts[key] ?? new DisplayDockLayout { Edge = Edge, Alignment = Alignment };
@@ -276,6 +297,10 @@ public sealed record DockSettings
         FolderFlyoutIconSize = Math.Clamp(FolderFlyoutIconSize, 16, 64);
         IconSpacing = Math.Clamp(IconSpacing, -16, 8);
         BackgroundStrength = Math.Clamp(BackgroundStrength, 0, 100);
+        if (!Enum.IsDefined(TintMode)) TintMode = DockTintMode.Default;
+        TintStrength = Math.Clamp(TintStrength, 0, 100);
+        TintColour = ValidateColor(TintColour);
+        if (TintColour.Length == 0) TintColour = "#0078D4";
         DockBorderOpacity = Math.Clamp(DockBorderOpacity, 0, 100);
         ItemIndicatorOpacity = Math.Clamp(ItemIndicatorOpacity, 0, 100);
         DockBorderColor = ValidateColor(DockBorderColor);
@@ -289,7 +314,11 @@ public sealed record DockSettings
         if (GroupIndicatorShape == GroupIndicatorShape.Square) GroupIndicatorShape = GroupIndicatorShape.Squircle;
         if (!Enum.IsDefined(ItemIndicatorShape)) ItemIndicatorShape = ItemIndicatorShape.Pill;
         if (ItemIndicatorShape == ItemIndicatorShape.Squircle) ItemIndicatorShape = ItemIndicatorShape.Circle;
-        FloatingGap = Math.Clamp(FloatingGap, 0, 8);
+        if (ItemIndicatorShape == ItemIndicatorShape.Default) ItemIndicatorShape = ItemIndicatorShape.Pill;
+        if (!Enum.IsDefined(PillSize)) PillSize = IndicatorPillSize.Medium;
+        if (AutomaticItemIndicatorShape.HasValue && !Enum.IsDefined(AutomaticItemIndicatorShape.Value)) AutomaticItemIndicatorShape = null;
+        if (AutomaticItemIndicatorShape == ItemIndicatorShape.Squircle) AutomaticItemIndicatorShape = ItemIndicatorShape.Circle;
+        FloatingGap = Math.Clamp(FloatingGap, -12, 12);
         DockMarginLeft = Math.Clamp(DockMarginLeft, 0, 8);
         DockMarginTop = Math.Clamp(DockMarginTop, 0, 8);
         DockMarginRight = Math.Clamp(DockMarginRight, 0, 8);
@@ -412,7 +441,7 @@ public static class TaskReconciler
                 else if (match != null) remaining.Remove(match);
             }
         }
-        if (groupWindows || minimizedOnly) remaining.RemoveAll(window => !window.Minimized);
+        if (minimizedOnly) remaining.RemoveAll(window => !window.Minimized);
         while (remaining.Count > 0)
         {
             var w = remaining[0];
@@ -435,7 +464,7 @@ public static class VisibilityPolicy
     public static bool ShouldHide(HideMode mode, PixelRect dock, TaskWindow? active, bool interacting, bool fullScreen, PixelRect? monitorBounds = null, bool fullscreenExcluded = false)
     {
         if (interacting) return false;
-        if (fullScreen) return !fullscreenExcluded;
+        if (fullScreen) return true;
         if (mode == HideMode.AfterDelay) return true;
         if (active == null || active.Minimized) return false;
         if (monitorBounds.HasValue && !active.Bounds.Intersects(monitorBounds.Value)) return false;

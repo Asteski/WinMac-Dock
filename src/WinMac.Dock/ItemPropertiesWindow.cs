@@ -9,6 +9,12 @@ internal sealed class ItemPropertiesWindow : Window
 {
     private readonly DockWindow dock;
     private readonly DockItem item;
+    private string? moduleIconStyleOverride;
+    private ToggleSwitch? moduleAnimation;
+    private FrameworkElement? propertiesFooter;
+    private ShellAnimatedIcon? modulePreview;
+    private string? modulePreviewIdentity;
+    private readonly List<Func<Task>> itemIconPreviewUpdates = [];
     private readonly DockItem? recycleDefaults;
     private readonly StackPanel panel = new() { Spacing = 12, Padding = new Thickness(24, 20, 24, 20) };
     private readonly TextBox name, target, arguments, working, icon, darkIcon, identity;
@@ -136,8 +142,9 @@ internal sealed class ItemPropertiesWindow : Window
             AddRecycleIconRow("Default / Light mode icons", recycleEmpty, recycleFull, false);
             AddRecycleIconRow("Dark mode icons (optional)", recycleEmptyDark, recycleFullDark, true);
         }
+        else if (ModuleIconPresentation.IsModule(item)) AddModuleIconControls();
         else AddItemIconCards();
-        AddSeparator();
+        if (!ModuleIconPresentation.IsModule(item)) AddSeparator();
         if (item.Kind == ItemKind.Folder && DockWindow.IsDownloads(item))
         {
 
@@ -312,6 +319,7 @@ internal sealed class ItemPropertiesWindow : Window
         apply.Click += (_, _) => Save(false);
         actions.Children.Add(ok); actions.Children.Add(cancel); actions.Children.Add(apply);
         var footer = new Border { Padding = new Thickness(24, 12, 24, 20), Child = actions };
+        propertiesFooter = footer;
         var layout = new Grid();
         layout.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
         layout.RowDefinitions.Add(new() { Height = GridLength.Auto });
@@ -326,16 +334,18 @@ internal sealed class ItemPropertiesWindow : Window
         foreach (var box in new[] { target, icon, darkIcon, identity }) box.TextChanged += (_, _) => _ = RefreshPreview();
         panel.ActualThemeChanged += (_, _) => _ = RefreshPreview();
         var display = dock.ResolveDisplay();
-        panel.Loaded += (_, _) => { FitHeight(display, footer.DesiredSize.Height); _ = RefreshPreview(); };
+        panel.Loaded += (_, _) => { ResizeToVisibleOptions(); _ = RefreshPreview(); };
+        panel.LayoutUpdated += (_, _) => PositionModulePreview();
         Closed += (_, _) =>
         {
             Native.RemoveWindowSubclass(WinRT.Interop.WindowNative.GetWindowHandle(this), Native.FixedHeightSubclass, 104);
             closed = true;
+            modulePreview?.Dispose(); modulePreview = null;
             previewRevision++;
             chrome.ReleaseBody();
             try { File.Delete(windowIcon); } catch { }
         };
-        PositionCentered(display, 650);
+        PositionCentered(display, ModuleIconPresentation.IsModule(item) ? 450 : 650);
         TrackEdits(panel);
         // Icon cards edit backing text boxes rather than displaying them.
         // Include those values so Browse and Reset enable Apply as well.
@@ -349,6 +359,43 @@ internal sealed class ItemPropertiesWindow : Window
         var client = Native.ClientBounds(WinRT.Interop.WindowNative.GetWindowHandle(this));
         int frameHeight = Math.Max(0, AppWindow.Size.Height - client.Height);
         PositionCentered(display, panel.DesiredSize.Height + footerHeight + 32 + frameHeight / display.Scale);
+    }
+    private void ResizeToVisibleOptions()
+    {
+        if (closed || panel.XamlRoot == null || propertiesFooter == null) return;
+        if (ModuleIconPresentation.IsModule(item)) { PositionCentered(dock.ResolveDisplay(), 450); return; }
+        panel.InvalidateMeasure();
+        propertiesFooter.Measure(new Windows.Foundation.Size(600, double.PositiveInfinity));
+        FitHeight(dock.ResolveDisplay(), propertiesFooter.DesiredSize.Height);
+    }
+    private void PositionModulePreview()
+    {
+        if (modulePreview == null || closed || preview.XamlRoot == null) return;
+        var rect = preview.TransformToVisual(chrome.Root).TransformBounds(new Windows.Foundation.Rect(0, 0, preview.ActualWidth, preview.ActualHeight));
+        double scale = preview.XamlRoot.RasterizationScale;
+        modulePreview.Place(new PixelRect((int)Math.Round(rect.Left * scale), (int)Math.Round(rect.Top * scale),
+            (int)Math.Round(rect.Right * scale), (int)Math.Round(rect.Bottom * scale)), rect.Width > 0 && rect.Height > 0 && rect.Bottom > 32);
+    }
+    private void UpdateModulePreview(DockItem draft)
+    {
+        bool modern = draft.Kind == ItemKind.Search && ModuleIconPresentation.UsesPreset(draft) && draft.ModuleIconStyle == "modern";
+        string? desired = modern ? "modern:" + panel.ActualTheme : null;
+        if (desired != modulePreviewIdentity)
+        {
+            modulePreview?.Dispose(); modulePreview = null; modulePreviewIdentity = null;
+            if (modern)
+            {
+                try
+                {
+                    modulePreview = new ShellAnimatedIcon(WinRT.Interop.WindowNative.GetWindowHandle(this), ItemKind.Search, panel.ActualTheme == ElementTheme.Dark, true);
+                    modulePreview.SetState(false, false, false, false);
+                    modulePreviewIdentity = desired;
+                }
+                catch (Exception ex) { Log.Write(ex); }
+            }
+        }
+        preview.Opacity = modulePreview == null ? 1 : 0;
+        PositionModulePreview();
     }
     private void PositionCentered(MonitorData display, double heightDip)
     {
@@ -415,6 +462,36 @@ internal sealed class ItemPropertiesWindow : Window
         };
         return box;
     }
+    private void AddModuleIconControls()
+    {
+        string[] styles = ModuleIconPresentation.Styles(item.Kind);
+        var choice = new ComboBox
+        {
+            Header = "Icon style", ItemsSource = ModuleIconPresentation.Labels(item.Kind),
+            SelectedIndex = Math.Max(0, Array.IndexOf(styles, ModuleIconPresentation.SelectedStyle(item))),
+            HorizontalAlignment = HorizontalAlignment.Stretch
+        };
+        panel.Children.Add(choice);
+        moduleAnimation = new ToggleSwitch { Header = "Disable icon animation", IsOn = item.DisableModuleIconAnimation };
+        panel.Children.Add(moduleAnimation);
+        AddItemIconCards();
+        var customIcons = panel.Children[^1];
+        void Update()
+        {
+            if (choice.SelectedIndex < 0) return;
+            string style = styles[choice.SelectedIndex];
+            moduleAnimation.Visibility = ModuleIconPresentation.Animated(style) ? Visibility.Visible : Visibility.Collapsed;
+            customIcons.Visibility = style == "custom" ? Visibility.Visible : Visibility.Collapsed;
+        }
+        choice.SelectionChanged += (_, _) =>
+        {
+            if (choice.SelectedIndex < 0) return;
+            moduleIconStyleOverride = styles[choice.SelectedIndex];
+            Update(); UpdateApplyState(); _ = RefreshPreview();
+            foreach (var update in itemIconPreviewUpdates) _ = update();
+        };
+        Update();
+    }
     private void AddItemIconCards()
     {
         var row = new Grid { ColumnSpacing = 24 };
@@ -439,20 +516,25 @@ internal sealed class ItemPropertiesWindow : Window
             {
                 int version = ++revision;
                 string custom = box.Text.Trim();
+                var moduleDraft = Draft();
+                bool preset = ModuleIconPresentation.UsesPreset(moduleDraft);
                 string path = string.IsNullOrEmpty(custom)
                     ? dark && !string.IsNullOrWhiteSpace(icon.Text) ? icon.Text.Trim() : IconService.PathFor(Draft() with { CustomIcon = "", DarkModeIcon = "" })
                     : custom;
+                if (preset) path = ModuleIconPresentation.PathFor(moduleDraft, dark);
                 string defaultPath = IconService.PathFor(Draft() with { CustomIcon = "", DarkModeIcon = "" });
                 string resolved = BundledIconPath.Resolve(custom, Path.Combine(AppContext.BaseDirectory, "assets"));
                 bool isDefault = string.IsNullOrEmpty(custom) || string.Equals(resolved, defaultPath, StringComparison.OrdinalIgnoreCase)
                     || string.Equals(resolved, ShortcutIconTarget.DefaultIcon, StringComparison.OrdinalIgnoreCase);
-                filename.Text = isDefault ? "Default" : Path.GetFileName(custom);
-                reset.IsEnabled = !isDefault;
+                filename.Text = preset || (ModuleIconPresentation.IsModule(moduleDraft) && isDefault)
+                    ? ModuleIconPresentation.Name(moduleDraft) : isDefault ? "Default" : Path.GetFileName(custom);
+                reset.IsEnabled = !preset && !isDefault;
                 ToolTipService.SetToolTip(filename, isDefault ? null : path);
                 var source = await IconService.Load(path, imageFile: !string.IsNullOrEmpty(custom), requestedPixels: 64);
                 if (!closed && version == revision) image.Source = source;
             }
             card.Loaded += async (_, _) => await Update();
+            itemIconPreviewUpdates.Add(Update);
             box.TextChanged += async (_, _) => await Update();
             if (dark) icon.TextChanged += async (_, _) => await Update();
             target.TextChanged += async (_, _) => await Update();
@@ -469,6 +551,7 @@ internal sealed class ItemPropertiesWindow : Window
                     if (file == null || closed) return;
                     var selected = await ChooseIconSource(file);
                     if (selected == null || closed) return;
+                    if (ModuleIconPresentation.IsModule(item)) moduleIconStyleOverride = "custom";
                     IconService.Invalidate(selected); SetIconPath(box, selected); await Update();
                 }
                 catch (Exception ex) { Log.Write(ex); }
@@ -583,7 +666,8 @@ internal sealed class ItemPropertiesWindow : Window
         await RefreshPreview();
     }
     private DockItem Draft() => item with { Target = target.Text.Trim(), ExecutablePath = target.Text.Trim().EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? target.Text.Trim() : target.Text.Trim() != item.Target ? "" : item.ExecutablePath,
-        CustomIcon = icon.Text.Trim(), DarkModeIcon = darkIcon.Text.Trim(), AppUserModelId = identity.Text.Trim(),
+        CustomIcon = icon.Text.Trim(), DarkModeIcon = darkIcon.Text.Trim(), ModuleIconStyle = moduleIconStyleOverride ?? item.ModuleIconStyle,
+        DisableModuleIconAnimation = moduleAnimation?.IsOn ?? item.DisableModuleIconAnimation, AppUserModelId = identity.Text.Trim(),
         RecycleEmptyIcon = recycleEmpty.Text.Trim(), RecycleFullIcon = recycleFull.Text.Trim(), RecycleEmptyDarkIcon = recycleEmptyDark.Text.Trim(), RecycleFullDarkIcon = recycleFullDark.Text.Trim() };
     private async Task RefreshPreview()
     {
@@ -592,13 +676,33 @@ internal sealed class ItemPropertiesWindow : Window
         try
         {
             var draft = Draft();
+            if (ModuleIconPresentation.IsModern(draft))
+            {
+                var artwork = await ModuleIconPresentation.ModernArtworkAsync(WinRT.Interop.WindowNative.GetWindowHandle(this), panel.ActualTheme == ElementTheme.Dark, coloured: true);
+                if (closed || version != previewRevision) return;
+                if (artwork != null)
+                {
+                    modulePreview?.Dispose(); modulePreview = null; modulePreviewIdentity = null;
+                    preview.Opacity = 1;
+                    preview.Source = artwork;
+                    var iconFrames = await IconService.WindowIconFrames(artwork);
+                    if (closed || version != previewRevision) return;
+                    int targetPixels = (int)Math.Ceiling(16 * panel.XamlRoot.RasterizationScale);
+                    int frameIndex = Array.FindIndex(new[] { 16, 20, 24, 32, 40, 48, 64, 256 }, size => size >= targetPixels);
+                    chrome.Icon.Source = iconFrames.Length > 0 ? iconFrames[Math.Clamp(frameIndex, 0, iconFrames.Length - 1)] : artwork;
+                    if (IconService.WriteWindowIcon(iconFrames, windowIcon)) AppWindow.SetIcon(windowIcon);
+                    return;
+                }
+            }
             // The properties preview follows this window's actual theme, including unsaved icon edits.
             string custom = panel.ActualTheme == ElementTheme.Dark && !string.IsNullOrEmpty(draft.DarkModeIcon) ? draft.DarkModeIcon : draft.CustomIcon;
             if (draft.Kind == ItemKind.RecycleBin) custom = IconService.RecycleCustomPath(draft, ShellService.RecycleCount() > 0, panel.ActualTheme == ElementTheme.Dark);
             var path = string.IsNullOrEmpty(custom) ? IconService.PathFor(draft with { DarkModeIcon = "", CustomIcon = "" }) : custom;
+            if (ModuleIconPresentation.UsesPreset(draft)) path = ModuleIconPresentation.PathFor(draft, panel.ActualTheme == ElementTheme.Dark);
             var source = await IconService.Load(path, imageFile: !string.IsNullOrEmpty(custom), requestedPixels: 32);
             if (closed || version != previewRevision) return;
             preview.Source = source; chrome.Icon.Source = source;
+            UpdateModulePreview(draft);
             if (source == null) return;
             int[] sizes = [16, 20, 24, 32, 40, 48, 64, 256];
             var frames = await Task.WhenAll(sizes.Select(size => IconService.Load(path, imageFile: !string.IsNullOrEmpty(custom), requestedPixels: size)));
@@ -628,10 +732,14 @@ internal sealed class ItemPropertiesWindow : Window
             catch (Exception ex) { Log.Write(ex); if (captureSettingsError != null) captureSettingsError.Text = "Could not apply Snipping Tool folders: " + ex.Message; return; }
         }
         var draft = Draft(); var oldArguments = item.Arguments;
+        if (ModuleIconPresentation.IsModule(item) && moduleIconStyleOverride == null && (draft.CustomIcon != item.CustomIcon || draft.DarkModeIcon != item.DarkModeIcon))
+            draft.ModuleIconStyle = "custom";
         item.Name = string.IsNullOrWhiteSpace(name.Text) ? item.Name : name.Text.Trim(); item.Target = draft.Target;
         name.Text = item.Name;
         item.Arguments = arguments.Text; item.WorkingDirectory = working.Text.Trim(); item.CustomIcon = draft.CustomIcon;
         item.DarkModeIcon = draft.DarkModeIcon; item.AppUserModelId = draft.AppUserModelId; item.ExecutablePath = draft.ExecutablePath;
+        item.ModuleIconStyle = draft.ModuleIconStyle;
+        item.DisableModuleIconAnimation = draft.DisableModuleIconAnimation;
         if (item.Kind == ItemKind.RecycleBin)
         {
             item.RecycleEmptyIcon = draft.RecycleEmptyIcon; item.RecycleFullIcon = draft.RecycleFullIcon;
@@ -670,6 +778,7 @@ internal sealed class ItemPropertiesWindow : Window
             downloadPinLimit.Value = item.Folder.DownloadPinLimit;
         }
         dock.ApplySettings();
+        if (ModuleIconPresentation.IsModule(item)) dock.RefreshModuleSettings();
         appliedValues = CurrentValues();
         UpdateApplyState();
         if (close) Close();

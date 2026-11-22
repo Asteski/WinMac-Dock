@@ -27,12 +27,17 @@ internal sealed partial class DockWindow
     {
         if (DisplayHideMode == HideMode.EdgeToggle)
         {
-            hideSince = revealSince = manualHideSince = null;
+            revealSince = manualHideSince = null;
             if (edgeActivation.Update(edge, ReleasedEdge(cursor), popupCount > 0 || dragging, DateTime.UtcNow, Settings.RevealDelayMs))
             { edgeToggleHidden = !edgeToggleHidden; manuallyHidden = false; }
-            bool shouldHide = edgeToggleHidden || (fullscreen && !excluded && !interacting && !edge);
-            if (shouldHide) HideDock();
-            else if (hidden) ShowDock(restoreManualReservation: false);
+            bool shouldHide = edgeToggleHidden || (fullscreen && !interacting && !edge);
+            if (shouldHide)
+            {
+                if (visibilitySliding && !hidden) { hideSince = null; return true; }
+                hideSince ??= DateTime.UtcNow;
+                if (edgeToggleHidden || (DateTime.UtcNow - hideSince.Value).TotalMilliseconds >= Settings.HideDelayMs) HideDock();
+            }
+            else { hideSince = null; if (hidden) ShowDock(restoreManualReservation: false); }
             return true;
         }
         if (!startupWaiting) return false;

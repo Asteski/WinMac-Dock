@@ -12,14 +12,20 @@ internal sealed partial class DockWindow
     private void UpdateTrayIcon()
     {
         if (closing || MonitorOverride != null) return;
-        string reference = Settings.UseMonochromeTrayIcon
-            ? (TaskbarMaterialTheme() == ElementTheme.Dark ? BundledIcons.MenuDark : BundledIcons.MenuLight)
+        bool dark = TaskbarMaterialTheme() == ElementTheme.Dark;
+        var style = Settings.TrayIconStyle;
+        string reference = style != TrayIconStyle.Default
+            ? (dark ? BundledIcons.MenuDark : BundledIcons.MenuLight)
             : BundledIcons.Tray;
-        if (trayIconReference == reference) return;
+        var colour = uiSettings.GetColorValue(accessibility.HighContrast ? UIColorType.Foreground : dark ? UIColorType.AccentLight2 : UIColorType.Accent);
+        int pixels = style != TrayIconStyle.Default ? System.Windows.Forms.SystemInformation.SmallIconSize.Width : 32;
+        string identity = $"{reference}|{pixels}|{style}";
+        if (style == TrayIconStyle.AccentColour) identity += $"|{colour.R},{colour.G},{colour.B}";
+        if (trayIconReference == identity) return;
+        var icon = style == TrayIconStyle.AccentColour ? IconResources.Tint(reference, pixels, colour) : IconResources.Load(reference, pixels);
         var previous = tray.Icon;
-        int pixels = Settings.UseMonochromeTrayIcon ? System.Windows.Forms.SystemInformation.SmallIconSize.Width : 32;
-        tray.Icon = IconResources.Load(reference, pixels);
-        trayIconReference = reference;
+        tray.Icon = icon;
+        trayIconReference = identity;
         previous?.Dispose();
     }
 

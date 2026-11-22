@@ -52,9 +52,11 @@ internal sealed class TaskTracker : IDisposable
     {
         var result = new List<TaskWindow>();
         var livePids = new HashSet<uint>();
+        bool includeAll = allDesktops ?? DockWindow.ShowItemsFromAllVirtualDesktops;
+        var desktop = includeAll ? null : Native.CurrentVirtualDesktopId();
         Native.EnumWindows((hwnd, _) =>
         {
-            var task = Describe(hwnd, livePids, allDesktops); if (task != null) result.Add(task); return true;
+            var task = Describe(hwnd, livePids, includeAll, desktop); if (task != null) result.Add(task); return true;
         }, 0);
         foreach (var pid in cache.Keys.Where(x => !livePids.Contains(x)).ToArray()) cache.Remove(pid);
         foreach (var handle in activationOrder.Keys.Where(h => !Native.IsWindow(h)).ToArray()) activationOrder.Remove(handle);
@@ -72,7 +74,7 @@ internal sealed class TaskTracker : IDisposable
         }
         return result;
     }
-    public TaskWindow? Describe(nint hwnd, HashSet<uint>? livePids = null, bool? allDesktops = null)
+    public TaskWindow? Describe(nint hwnd, HashSet<uint>? livePids = null, bool? allDesktops = null, Guid? desktop = null)
     {
         if (hwnd == 0 || !Native.IsWindowVisible(hwnd)) return null;
         Native.GetWindowThreadProcessId(hwnd, out var pid);
@@ -84,7 +86,8 @@ internal sealed class TaskTracker : IDisposable
         if (Native.IsTaskViewWindow(hwnd)) return null;
         var currentDesktop = Native.IsWindowOnCurrentVirtualDesktop(hwnd);
         var includeAll = allDesktops ?? DockWindow.ShowItemsFromAllVirtualDesktops;
-        if (!includeAll && !currentDesktop) return null;
+        if (!VirtualDesktopScope.Includes(includeAll, currentDesktop, includeAll ? null : Native.WindowDesktop(hwnd),
+            includeAll ? null : desktop ?? Native.CurrentVirtualDesktopId())) return null;
         if (Native.DwmGetInt(hwnd, 14, out int cloaked, 4) == 0 && cloaked != 0)
         {
             // Shell cloaking on another desktop is allowed in all-desktop mode.

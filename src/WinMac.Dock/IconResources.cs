@@ -22,6 +22,24 @@ internal static class IconResources
         }
         finally { if (large != 0) Native.DestroyIcon(large); if (small != 0) Native.DestroyIcon(small); }
     }
+    internal static System.Drawing.Icon Tint(string reference, int pixels, Windows.UI.Color colour)
+    {
+        using var source = Load(reference, pixels);
+        using var bitmap = source.ToBitmap();
+        for (int y = 0; y < bitmap.Height; y++)
+            for (int x = 0; x < bitmap.Width; x++)
+            {
+                var pixel = bitmap.GetPixel(x, y);
+                bitmap.SetPixel(x, y, System.Drawing.Color.FromArgb(pixel.A, colour.R, colour.G, colour.B));
+            }
+        nint handle = bitmap.GetHicon();
+        try
+        {
+            using var borrowed = System.Drawing.Icon.FromHandle(handle);
+            return (System.Drawing.Icon)borrowed.Clone();
+        }
+        finally { Native.DestroyIcon(handle); }
+    }
     internal static async Task LoadDownloadsBadge(Microsoft.UI.Xaml.Media.Imaging.SvgImageSource source)
     {
         using var input = WinMac.Dock.Icons.BundledIconLibrary.OpenDownloadsBadge();

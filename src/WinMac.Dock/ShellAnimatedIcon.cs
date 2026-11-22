@@ -36,7 +36,49 @@ internal sealed class ShellAnimatedIcon : IDisposable
     private PixelRect? bounds;
     public nint Handle => surface.Handle;
 
-    public ShellAnimatedIcon(nint parent, ItemKind kind, bool dark)
+    internal static async Task<Windows.Graphics.Imaging.SoftwareBitmap?> CaptureArtworkAsync(nint parent, ItemKind kind, bool dark, bool modern, int pixels)
+    {
+        if (!Windows.Graphics.Capture.GraphicsCaptureSession.IsSupported()) return null;
+        using var source = new ShellAnimatedIcon(parent, kind, dark, modern);
+        source.SetState(false, false, false, false);
+        source.container.IsVisible = true;
+        source.container.Offset = new Vector3(-10000, -10000, 0);
+        source.container.Size = new Vector2(pixels, pixels);
+        source.surface.EnsureBounds();
+        source.clickVisual.Size = new Vector2(pixels, pixels);
+        source.visual.Scale = new Vector3(pixels / source.naturalSize.X, pixels / source.naturalSize.Y, 1);
+        var item = Windows.Graphics.Capture.GraphicsCaptureItem.CreateFromVisual(source.clickVisual);
+        using var device = new Microsoft.Graphics.Canvas.CanvasDevice();
+        using var pool = Windows.Graphics.Capture.Direct3D11CaptureFramePool.CreateFreeThreaded(
+            device.As<Windows.Graphics.DirectX.Direct3D11.IDirect3DDevice>(), Windows.Graphics.DirectX.DirectXPixelFormat.B8G8R8A8UIntNormalized,
+            1, new Windows.Graphics.SizeInt32(pixels, pixels));
+        var result = new TaskCompletionSource<Windows.Graphics.Imaging.SoftwareBitmap?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        int capturing = 0;
+        pool.FrameArrived += async (sender, _) =>
+        {
+            if (Interlocked.Exchange(ref capturing, 1) != 0) return;
+            try
+            {
+                using var frame = sender.TryGetNextFrame();
+                if (frame == null) { Volatile.Write(ref capturing, 0); return; }
+                var bitmap = await Windows.Graphics.Imaging.SoftwareBitmap.CreateCopyFromSurfaceAsync(frame.Surface, Windows.Graphics.Imaging.BitmapAlphaMode.Premultiplied);
+                var bytes = new byte[bitmap.PixelWidth * bitmap.PixelHeight * 4];
+                bitmap.CopyToBuffer(System.Runtime.InteropServices.WindowsRuntime.WindowsRuntimeBufferExtensions.AsBuffer(bytes));
+                bool painted = false;
+                for (int index = 3; index < bytes.Length; index += 4) if (bytes[index] != 0) { painted = true; break; }
+                if (!painted) { bitmap.Dispose(); Volatile.Write(ref capturing, 0); return; }
+                if (!result.TrySetResult(bitmap)) bitmap.Dispose();
+            }
+            catch (Exception ex) { result.TrySetException(ex); }
+        };
+        using var session = pool.CreateCaptureSession(item);
+        session.IsCursorCaptureEnabled = false;
+        session.StartCapture();
+        try { return await result.Task.WaitAsync(TimeSpan.FromSeconds(2)); }
+        finally { result.TrySetCanceled(); }
+    }
+
+    public ShellAnimatedIcon(nint parent, ItemKind kind, bool dark, bool modernSearch = false)
     {
         EnsureCompositor();
         isSearch = kind == ItemKind.Search;
@@ -46,6 +88,7 @@ internal sealed class ShellAnimatedIcon : IDisposable
             ItemKind.StartMenu => "Start", ItemKind.Search => "Search", ItemKind.TaskView => "TaskView",
             _ => throw new ArgumentOutOfRangeException(nameof(kind))
         }) + (dark ? "Dark" : "Light");
+        if (modernSearch && kind == ItemKind.Search) name += "_Sparkle";
         nint factory = 0, source = 0, sourceInterface = 0, source2 = 0, map = 0, comp = 0, root = 0, diagnostics = 0;
         try
         {
@@ -148,6 +191,7 @@ internal sealed class ShellAnimatedIcon : IDisposable
         queuedPress = null;
         clickVisual.StopAnimation("Scale");
         clickVisual.Scale = Vector3.One;
+        clickPlayback?.Dispose(); clickPlayback = null;
         if (isSearch)
         {
             // A click before the slide must not leave a timed return animation

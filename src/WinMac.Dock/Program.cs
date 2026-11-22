@@ -4,7 +4,8 @@ using Microsoft.UI.Xaml;
 namespace WinMac.Dock;
 internal static class Program
 {
-    public static event Action<string>? CommandReceived;
+    private static readonly StartupCommandQueue commands = new();
+    internal static void ReadyForCommands(Action<string> dispatch) => commands.Ready(dispatch);
     public static string StartupCommand { get; private set; } = "--startup";
     [STAThread]
     public static void Main(string[] args)
@@ -29,11 +30,18 @@ internal static class Program
             catch (Exception ex) { Log.Write(ex); Environment.ExitCode = 1; }
             return;
         }
-        using var mutex = new Mutex(true, "Local\\WinMac.Dock." + Environment.UserName, out var first);
-        var pipeName = "WinMac.Dock." + Environment.UserName;
+        using var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
+        string user = identity.User?.Value ?? throw new InvalidOperationException("The current Windows user could not be identified.");
+        using var mutex = new Mutex(true, "Local\\WinMac.Dock." + user, out var first);
+        // Match the session-local singleton: this does not permit a second
+        // instance in this session, and cannot route commands to another one.
+        using var process = System.Diagnostics.Process.GetCurrentProcess();
+        var pipeName = "WinMac.Dock." + user + "." + process.SessionId;
         if (!first)
         {
-            try { using var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.Out); pipe.Connect(3000); using var writer = new StreamWriter(pipe) { AutoFlush = true }; writer.WriteLine(args.FirstOrDefault() ?? "--show"); }
+            // Launching the executable again opens the existing Settings
+            // window. Explicit startup and command-line actions retain their meaning.
+            try { using var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.Out); pipe.Connect(3000); using var writer = new StreamWriter(pipe) { AutoFlush = true }; writer.WriteLine(args.FirstOrDefault() ?? "--settings"); }
             catch (Exception ex) { Log.Write(ex); }
             return;
         }
@@ -47,9 +55,11 @@ internal static class Program
                     using var pipe = new NamedPipeServerStream(pipeName, PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
                     await pipe.WaitForConnectionAsync();
                     using var reader = new StreamReader(pipe);
-                    var command = await reader.ReadLineAsync();
-                    if (command != null) CommandReceived?.Invoke(command);
+                    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+                    var command = await reader.ReadLineAsync(timeout.Token);
+                    if (command is { Length: <= 64 }) commands.Receive(command);
                 }
+                catch (OperationCanceledException) { }
                 catch (Exception ex) { Log.Write(ex); await Task.Delay(1000); }
             }
         });

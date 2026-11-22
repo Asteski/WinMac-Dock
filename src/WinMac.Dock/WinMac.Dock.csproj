@@ -6,7 +6,8 @@
     <WindowsPackageType>None</WindowsPackageType><WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <ApplicationManifest>app.manifest</ApplicationManifest><Win32Resource>$(MSBuildProjectDirectory)/obj/$(Platform)/$(Configuration)/$(TargetFramework)/DockIcons.res</Win32Resource><Platforms>x64;ARM64</Platforms><PlatformTarget Condition="'$(Platform)' == 'ARM64'">ARM64</PlatformTarget><PlatformTarget Condition="'$(Platform)' != 'ARM64'">x64</PlatformTarget>
 
-    <Version>1.0.0-rc3</Version><AssemblyVersion>1.0.0.0</AssemblyVersion><FileVersion>1.0.0.0</FileVersion><InformationalVersion>v1.0.0-RC3</InformationalVersion>
+    <Version>1.0.0</Version><AssemblyVersion>1.0.0.0</AssemblyVersion><FileVersion>1.0.0.0</FileVersion><InformationalVersion>1.0.0</InformationalVersion>
+    <Company>Asteski</Company><Product>WinMac Dock</Product><Copyright>Copyright (c) Asteski</Copyright>
     <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks><ImplicitUsings>disable</ImplicitUsings>
   </PropertyGroup>
@@ -33,4 +34,5 @@
     <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)/../../build/CompileIconResources.ps1&quot; -Source &quot;$(MSBuildProjectDirectory)/DockIcons.rc&quot; -Output &quot;$(Win32Resource)&quot; -Manifest &quot;$(Win32Manifest)&quot;" />
     <PropertyGroup><Win32Manifest></Win32Manifest><EmbeddedWin32Manifest></EmbeddedWin32Manifest><NoWin32Manifest>false</NoWin32Manifest></PropertyGroup>
   </Target>
+  <ItemGroup><Content Include="../../assets/fonts/SnSkFluent.ttf" Link="assets/fonts/SnSkFluent.ttf" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" /><Content Include="../../assets/start-button/*.svg" Link="assets/start-button/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" /></ItemGroup>
 </Project>

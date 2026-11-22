@@ -28,6 +28,7 @@ internal sealed partial class DockWindow
     }
     private Task RefreshPinArtwork()
     {
+        if (fullscreenIdleActive) return Task.CompletedTask;
         if (closing || !StartupComplete || pendingPinArtwork.Count == 0) return Task.CompletedTask;
         pendingPinArtwork.RemoveWhere(id => !Settings.Items.Any(item => item.Id == id));
         foreach (var live in buttons.Where(b => pendingPinArtwork.Contains(b.Entry.Item.Id)).ToArray())
@@ -68,7 +69,7 @@ internal sealed partial class DockWindow
             // A cached icon may finish synchronously inside AddButton. Let the
             // rebuild create its row transition before attempting a bounce.
             await Task.Yield();
-            bool Current() => !closing && image.Source != null && downloadIndicators.TryGetValue(button, out var current) && ReferenceEquals(current, indicator)
+            bool Current() => !closing && !fullscreenIdleActive && image.Source != null && downloadIndicators.TryGetValue(button, out var current) && ReferenceEquals(current, indicator)
                 && Settings.Items.Any(i => i.Id == item.Id);
             while (Current() && (!button.IsLoaded || rowAnimating || rowStaging || rowFinishing || reconciling || positioning || hidden || visibilitySliding || popupCount > 0))
                 await Task.Delay(32);
@@ -170,7 +171,7 @@ internal sealed partial class DockWindow
         SyncDownloadWatchers(paths.Concat(captureFolders.Keys).Concat(Settings.Items.Where(i => i.IsDownloadedPin).Select(i => Path.GetDirectoryName(i.Target)).OfType<string>()));
         if (!downloadTimerHooked)
         {
-            downloadPinTimer.Tick += async (_, _) => { SyncDownloadPinning(); await ScanDownloadPins(); };
+            downloadPinTimer.Tick += async (_, _) => { if (fullscreenIdleActive) return; SyncDownloadPinning(); await ScanDownloadPins(); };
             downloadChangeTimer.Tick += async (_, _) => { downloadChangeTimer.Stop(); await ScanDownloadPins(); };
             downloadTimerHooked = true;
         }
@@ -180,6 +181,7 @@ internal sealed partial class DockWindow
 
     private async Task ScanDownloadPins()
     {
+        if (fullscreenIdleActive) return;
         if (closing) return;
         if (scanningDownloads) { scanDownloadsAgain = true; return; }
         scanningDownloads = true;

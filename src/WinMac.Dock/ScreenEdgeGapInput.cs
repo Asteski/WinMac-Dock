@@ -35,8 +35,18 @@ internal sealed class ScreenEdgeGapInput : IDisposable
             }
             return CallNextHookEx(hook, code, message, data);
         };
-        hook = SetWindowsHookExW(14, callback, GetModuleHandleW(null), 0);
-        if (hook == 0) Log.Write(new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error()));
+    }
+    public void SetEnabled(bool enabled)
+    {
+        if (enabled && hook == 0)
+        {
+            hook = SetWindowsHookExW(14, callback, GetModuleHandleW(null), 0);
+            if (hook == 0) Log.Write(new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error()));
+        }
+        else if (!enabled && hook != 0)
+        {
+            UnhookWindowsHookEx(hook); hook = 0; captured = false;
+        }
     }
     public void Dispose()
     {

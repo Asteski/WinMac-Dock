@@ -14,6 +14,7 @@ internal sealed partial class DockWindow
     {
         if (window == 0 || !Native.IsWindow(window)) return;
         attentionWindows.Add(window);
+        if (fullscreenIdleActive) return;
         if (Settings.PreventAttentionBlinking) StopAttentionAnimation(window);
         else StartAttentionAnimation(window);
         if (Settings.ShowDockForAttention && hidden) ShowDock(restoreManualReservation: false);
@@ -45,6 +46,7 @@ internal sealed partial class DockWindow
 
     private void StartAttentionAnimation(nint window)
     {
+        if (fullscreenIdleActive) return;
         if (!Motion || Settings.PreventAttentionBlinking) return;
         var entry = buttons.FirstOrDefault(x => x.Entry.Windows.Any(w => w.Handle == window));
         if (entry.Button == null) return;

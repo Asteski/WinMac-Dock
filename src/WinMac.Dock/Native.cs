@@ -11,7 +11,22 @@ internal static class Native
         [PreserveSig] int GetWindowDesktopId(nint hwnd, out Guid desktop);
         [PreserveSig] int MoveWindowToDesktop(nint hwnd, ref Guid desktop);
     }
-    private static IVirtualDesktopManager? virtualDesktopManager;
+    [ThreadStatic] private static IVirtualDesktopManager? virtualDesktopManager;
+    internal static Guid? CurrentVirtualDesktopId()
+    {
+        try
+        {
+            string explorer = @"Software\Microsoft\Windows\CurrentVersion\Explorer\";
+            int session = System.Diagnostics.Process.GetCurrentProcess().SessionId;
+            foreach (string path in new[] { explorer + $@"SessionInfo\{session}\VirtualDesktops", explorer + "VirtualDesktops" })
+            {
+                using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(path);
+                if (key?.GetValue("CurrentVirtualDesktop") is byte[] { Length: 16 } bytes && new Guid(bytes) is var id && id != Guid.Empty) return id;
+            }
+        }
+        catch { }
+        return WindowDesktop(GetForegroundWindow());
+    }
     public static bool IsWindowOnCurrentVirtualDesktop(nint hwnd)
     {
         try

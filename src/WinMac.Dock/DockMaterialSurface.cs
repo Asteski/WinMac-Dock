@@ -85,7 +85,12 @@ internal sealed partial class DockWindow
         // stays on the same backing surface at rest, entry, hover, and exit.
         backdrop.DetachForOverlay();
         dockBorder.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
-        materialRoot!.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+        var tint = Settings.TintMode == DockTintMode.WindowsAccent
+            ? uiSettings.GetColorValue(Windows.UI.ViewManagement.UIColorType.Accent)
+            : AppearanceColor.Resolve(Settings.TintColour, Microsoft.UI.Colors.Transparent, 100);
+        tint.A = Settings.TintMode == DockTintMode.Default || accessibility.HighContrast ? (byte)0
+            : (byte)Math.Round(Settings.TintStrength * 255d / 100);
+        materialRoot!.Background = new SolidColorBrush(tint);
         materialBackdrop!.Apply(Settings, root.RequestedTheme, accessibility.HighContrast, uiSettings.AdvancedEffectsEnabled, contrastColor);
     }
 

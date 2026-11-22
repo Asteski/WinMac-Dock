@@ -6,9 +6,9 @@ namespace WinMac.Dock;
 
 internal sealed partial class DockWindow
 {
-    private sealed record ShellIcon(Button Button, Grid Artwork, DockEntry Entry, bool Dark, ShellAnimatedIcon Animation);
+    private sealed record ShellIcon(Button Button, Grid Artwork, DockEntry Entry, bool Dark, string Style, ShellAnimatedIcon Animation);
     private readonly List<ShellIcon> shellIcons = [];
-    private readonly Dictionary<(ItemKind Kind, bool Dark), ShellAnimatedIcon> reusableShellIcons = new();
+    private readonly Dictionary<(ItemKind Kind, bool Dark, string Style), ShellAnimatedIcon> reusableShellIcons = new();
     private bool syncingShellIcons;
     private bool shellAnimationFailed;
     private bool suppressRevealHover;
@@ -16,6 +16,7 @@ internal sealed partial class DockWindow
     private void TryAddShellAnimatedIcon(Button button, Grid artwork, DockEntry entry)
     {
         if (shellAnimationFailed || accessibility.HighContrast || entry.Item.Kind is not (ItemKind.StartMenu or ItemKind.Search or ItemKind.TaskView)) return;
+        if (entry.Item.ModuleIconStyle is "custom" or "mono-rounded" or "mono-squared" or "colour-rounded" or "colour-squared") return;
         string custom = BundledIcons.Portable(IconService.CustomPathFor(entry.Item));
         string expected = entry.Item.Kind switch { ItemKind.StartMenu => BundledIcons.Start, ItemKind.Search => BundledIcons.Search,
             _ => root.RequestedTheme == ElementTheme.Dark ? BundledIcons.TaskViewDark : BundledIcons.TaskViewLight };
@@ -23,8 +24,18 @@ internal sealed partial class DockWindow
         try
         {
             bool dark = root.RequestedTheme == ElementTheme.Dark;
-            var animation = reusableShellIcons.Remove((entry.Item.Kind, dark), out var retained) ? retained : new ShellAnimatedIcon(Handle, entry.Item.Kind, dark);
-            shellIcons.Add(new(button, artwork, entry, dark, animation));
+            ShellAnimatedIcon animation;
+            if (reusableShellIcons.Remove((entry.Item.Kind, dark, entry.Item.ModuleIconStyle), out var retained)) animation = retained;
+            else
+            {
+                try { animation = new ShellAnimatedIcon(Handle, entry.Item.Kind, dark, entry.Item.ModuleIconStyle == "modern"); }
+                catch (Exception ex) when (entry.Item.ModuleIconStyle == "modern")
+                {
+                    Log.Write(ex);
+                    animation = new ShellAnimatedIcon(Handle, entry.Item.Kind, dark);
+                }
+            }
+            shellIcons.Add(new(button, artwork, entry, dark, entry.Item.ModuleIconStyle, animation));
             // The transparent foreground HWND otherwise loses its native
             // input coverage when its bitmap is suppressed. Retain an alpha-1
             // XAML plate so the original button keeps its full hit rectangle.
@@ -34,7 +45,7 @@ internal sealed partial class DockWindow
             foreach (var child in artwork.Children) child.Opacity = 0;
             button.Click += (_, _) =>
             {
-                if (!hidden && !visibilitySliding) animation.NotifyClick();
+                if (!hidden && !visibilitySliding && !entry.Item.DisableModuleIconAnimation) animation.NotifyClick();
             };
             button.PointerEntered += (_, _) => SyncShellAnimatedIcons();
             button.PointerExited += (_, _) => SyncShellAnimatedIcons();
@@ -98,6 +109,12 @@ internal sealed partial class DockWindow
             else if (!hidden && !visibilitySliding && hovered == null) suppressRevealHover = false;
             foreach (var pose in poses)
             {
+                if (pose.Item.Entry.Item.DisableModuleIconAnimation)
+                {
+                    pose.Item.Animation.FreezeMotion();
+                    pose.Item.Animation.SetState(false, false, false, false);
+                    continue;
+                }
                 if (visibilitySliding || (settleVisibility && pose.Item.Entry.Item.Kind == ItemKind.Search))
                 {
                     pose.Item.Animation.FreezeMotion();
@@ -106,7 +123,7 @@ internal sealed partial class DockWindow
                 pose.Item.Animation.SetState(!suppressRevealHover && ReferenceEquals(hovered, pose.Item),
                     !suppressRevealHover && pressedButtons.Contains(pose.Item.Button) && ReferenceEquals(hovered, pose.Item),
                     TaskbarModuleTrigger.IsActive(pose.Item.Entry.Item.Kind) == true,
-                    Motion && !hidden && !visibilitySliding && !settleVisibility && !suppressRevealHover);
+                    Motion && !pose.Item.Entry.Item.DisableModuleIconAnimation && !hidden && !visibilitySliding && !settleVisibility && !suppressRevealHover);
             }
         }
         catch (Exception ex)
@@ -130,7 +147,7 @@ internal sealed partial class DockWindow
         {
             foreach (var child in item.Artwork.Children) child.Opacity = 1;
             item.Artwork.Background = null;
-            if (!reusableShellIcons.TryAdd((item.Entry.Item.Kind, item.Dark), item.Animation)) item.Animation.Dispose();
+            if (!reusableShellIcons.TryAdd((item.Entry.Item.Kind, item.Dark, item.Style), item.Animation)) item.Animation.Dispose();
         }
         shellIcons.Clear();
     }
