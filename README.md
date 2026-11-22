@@ -76,7 +76,7 @@ Windows 11 build **22621 or newer** is required. Choose **x64** for Intel/AMD PC
 - **MSIX package:** install the package matching your architecture through Windows App Installer. For the privately signed packages, trust the supplied `WinMac-Dock-1.x.x.cer` certificate under **Local Computer > Trusted Root Certification Authorities** before installation. The package's signing certificate is issued to **WinMac Dock** by **Asteski**. Uninstall through Windows Settings.
 - **Portable package:** extract the matching ZIP and run `WinMac.Dock.exe`. Keep the published files and folders together.
 
-Published builds are self-contained: a separate .NET installation is not required. Building from source requires the SDKs listed below.
+Published builds are self-contained: a separate .NET installation is not required. 
 
 Running the executable again opens Settings or activates the existing Settings window. Right-click the dock background or use its tray menu to access Settings and other commands.
 
