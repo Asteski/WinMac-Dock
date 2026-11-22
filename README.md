@@ -20,6 +20,7 @@
     <a href="https://github.com/Asteski/WinMac-Dock/wiki/Troubleshooting">Troubleshooting</a>
 </p>
 
+---
 
 <p align="center">
   <a href="https://github.com/Asteski/WinMac-Dock/releases/download/v1.0.0/WinMac-Dock-1.0.0-x64-Setup.exe"><img alt="Download x64" src="https://img.shields.io/badge/Download-x64-0078D6?style=for-the-badge"></a>
