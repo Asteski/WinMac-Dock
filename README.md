@@ -14,7 +14,7 @@
 
 <p align="center">
     <a href="https://github.com/Asteski/WinMac-Dock/wiki">Documentation</a> |
-    <a href="https://github.com/Asteski/WinMac-Dock/wiki/Installation">Installation</a> |
+    <a href="#Installation">Installation</a> |
     <a href="https://github.com/Asteski/WinMac-Dock/wiki/Getting-Started">Getting started</a> |
     <a href="https://github.com/Asteski/WinMac-Dock/releases/">Releases</a> |
     <a href="https://github.com/Asteski/WinMac-Dock/wiki/Troubleshooting">Troubleshooting</a>
