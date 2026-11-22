@@ -63,7 +63,7 @@
 Windows 11 build **22621 or newer** is required. Choose **x64** for Intel/AMD PCs or **ARM64** for Windows on ARM.
 
 - **NSIS installer:** choose a per-user or per-computer installation, with optional Start menu and desktop shortcuts. Per-computer installation requires administrator permission. The final page can launch the dock.
-- **MSIX package:** install the package matching your architecture through Windows App Installer. For the privately signed packages, trust the supplied `WinMac-Dock-1.0.0.cer` certificate under **Local Computer > Trusted Root Certification Authorities** before installation. The package's signing certificate is issued to **WinMac Dock** by **Asteski**. Uninstall through Windows Settings.
+- **MSIX package:** install the package matching your architecture through Windows App Installer. For the privately signed packages, trust the supplied `WinMac-Dock-1.x.x.cer` certificate under **Local Computer > Trusted Root Certification Authorities** before installation. The package's signing certificate is issued to **WinMac Dock** by **Asteski**. Uninstall through Windows Settings.
 - **Portable package:** extract the matching ZIP and run `WinMac.Dock.exe`. Keep the published files and folders together.
 
 Published builds are self-contained: a separate .NET installation is not required. Building from source requires the SDKs listed below.
@@ -76,13 +76,13 @@ The NSIS installer supports silent installation and command-line help. Run the a
 
 ```powershell
 # Silent per-user installation; create the default shortcuts and then launch.
-& '.\WinMac-Dock-1.0.0-x64-Setup.exe' /S /RUN
+& '.\WinMac-Dock-1.x.x-x64-Setup.exe' /S /RUN
 
 # Silent per-computer installation; requires elevation.
-& '.\WinMac-Dock-1.0.0-x64-Setup.exe' /S /Machine
+& '.\WinMac-Dock-1.x.x-x64-Setup.exe' /S /Machine
 
 # Show installer or uninstaller help.
-& '.\WinMac-Dock-1.0.0-x64-Setup.exe' /HELP
+& '.\WinMac-Dock-1.x.x-x64-Setup.exe' /HELP
 & "$env:LOCALAPPDATA\WinMac\Dock\Uninstall.exe" /HELP
 
 # Silent uninstall while retaining user settings and the startup task.
