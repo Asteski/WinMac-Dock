@@ -72,8 +72,8 @@
 
 Windows 11 build **22621 or newer** is required. Choose **x64** for Intel/AMD PCs or **ARM64** for Windows on ARM.
 
-- **NSIS installer:** choose a per-user or per-computer installation, with optional Start menu and desktop shortcuts. Per-computer installation requires administrator permission. The final page can launch the dock.
-- **MSIX package:** install the package matching your architecture through Windows App Installer. For the privately signed packages, trust the supplied `WinMac-Dock-1.x.x.cer` certificate under **Local Computer > Trusted Root Certification Authorities** before installation. The package's signing certificate is issued to **WinMac Dock** by **Asteski**. Uninstall through Windows Settings.
+- **NSIS installer:** choose between current user or all users installation, with optional Start menu and desktop shortcuts. All users installation requires administrator permission.
+- **MSIX package:** install the package matching your architecture through Windows App Installer. For the privately signed packages, trust the supplied `WinMac-Dock-1.x.x.cer` certificate under **Local Computer > Trusted Root Certification Authorities** before installation. 
 - **Portable package:** extract the matching ZIP and run `WinMac.Dock.exe`. Keep the published files and folders together.
 
 Published builds are self-contained: a separate .NET installation is not required. 
