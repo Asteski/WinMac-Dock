@@ -109,50 +109,10 @@ The app stays closed after installation unless you select the launch option or s
 - Group windows of the same application, or keep separate window items. Combining pinned launchers with running windows is a separate setting. Windows from other virtual desktops are excluded unless **Show items from all virtual desktops** is enabled.
 - **Minimize to dock** supplies Windows with the corresponding icon's minimize/restore destination. **Show minimized applications only** filters unpinned windows and requires Minimize to dock. Pinned launchers remain available.
 - Use folder **Grid**, **List**, or native **Menu** views, with per-folder sorting, icon size, grid dimensions, and stacked previews. Custom light/dark icons and SVG artwork are supported.
-- Downloads, connected drives, screenshots, and screen recordings can appear automatically. Configure these through Downloads, File Explorer, and Snipping Tool settings. **Automatic item order** controls the order of automatic groups and running windows after pinned items.
+- Downloads, connected drives, screenshots, and screen recordings can appear automatically. Configure these through Downloads, File Explorer, and Snipping Tool settings. **Item order** controls the order of automatic groups and running windows after pinned items.
 - Recycle Bin supports empty/full icons, confirmation, separate recycling/emptying sounds, playback previews, and volume controls up to 200%.
 
-### Modules, spacers, and separators
-
-**Dock items > Modules** contains Start menu, Search, Task View, Downloads, and Recycle Bin. **Folders** and **Applications** provide settings for individual items; Applications separates installed apps from system components. Item preferences are remembered when unpinned and restored when pinned again.
-
-Start menu, Search, and Task View support default Windows animated icons or custom light/dark icons, with a separate animation switch for each module. Start menu also offers monochrome or colorful, rounded or square presets. Search offers **Default** and **Modern Search**. Native animation availability depends on the installed Windows version. These modules use native Windows actions rather than simulated keyboard shortcuts.
-
-Spacers create blank item slots. Their context menus can add another spacer to either side, or above/below on vertical docks. **Expand spacer** fills available dock length and shrinks as items are added; its sizing leaves room for magnification. Separators cannot be added at the dock's ends or beyond the available interior gaps. Removing an end pin also removes a separator left at that edge. An otherwise empty dock retains one blank item-sized slot.
-
-### Appearance and placement
-
-Place the dock at the bottom, top, left, or right, and choose one display or **All Monitors**. Displays can remember separate placement and visibility settings. Crowded docks reduce icon size to fit, then use scrolling when necessary; the preferred size returns when space is available.
-
-**Space between icons** ranges from **−16 to 8 px**. **Gap from screen edge**, in Effects, ranges from **−12 to 12 px**. Screen-edge spanning can fill the available edge; its related settings remain editable while spanning is disabled.
-
-Choose Default, None, Acrylic, or Mica backgrounds, with default, Windows accent, or custom tint. Theme, transparency, and high-contrast settings affect the resulting material. Tray icons support Default, Monochrome, or Windows accent color and update when the theme/accent changes.
-
-Running, grouped-window, and automatically pinned item indicators have independent visibility controls. Customize their shapes, colors, and positions. **Pill-shaped indicator size** offers Small, Medium, and Large lengths for focused application pills; unfocused indicators retain their normal length. Automatic item indicators offer Default, Match item indicators, Pill, and Circle. Default keeps its fixed length; matching or explicit pills follow the selected pill size.
-
-Window thumbnails can show or hide application badges. Explorer location icons are controlled separately. Icon labels, file extensions, highlights, and highlight style are also configurable.
-
-### Visibility and fullscreen applications
-
-Choose Always visible, automatic hiding after a delay, hiding for maximized applications, hiding on active-window overlap, or screen-edge toggling. Mouse reveal options control how the pointer reveals a hidden dock. Start hidden and reservation are configured in Visibility.
-
-**Animate dock on startup** is enabled by default. A dock that starts visible slides in from its screen edge using the reveal animation. Hidden startup and disabled/reduced animations are respected.
-
-While hidden behind a fullscreen app, the dock automatically pauses background refreshes and animations. Deferred changes refresh when it returns. **Fullscreen exclusions** retain normal background updates and allow reveal by shortcut or screen edge. **Allow dock above fullscreen applications**, off by default, enables reveal for all fullscreen apps. The dock still hides using the configured visibility delays. **Hide immediately for fullscreen applications** and **Hide immediately when an allowed fullscreen app becomes active** are enabled by default. The latter hides without delay or animation on fullscreen activation while retaining shortcut and screen-edge reveal.
-
-Fullscreen exclusions allow the dock to be revealed above matching fullscreen applications; they do not keep it permanently visible. Separate process exclusions match window titles, executable names, and window classes. Enter process-exclusion rules separated by semicolons; `*` matches any number of characters and `?` matches one character. Pinned launchers remain available.
-
-**Hide Windows taskbar**, in Effects, saves the Windows taskbar's placement and auto-hide preference, moves it to the bottom when necessary, enables auto-hide, and hides it. Turning the option off or exiting restores the saved settings. Recovery data supports restoration after an interrupted exit.
-
-**Show dock in Task View** is disabled by default. Enabling it requires Windhawk and the **WinMac Dock Task View Bridge** mod. Its source is included in [integrations/windhawk/winmac-dock-task-view.wh.cpp](integrations/windhawk/winmac-dock-task-view.wh.cpp); published packages also include an `integrations` folder.
-
-### Mouse shortcuts
-
-- **Alt+drag:** Rearrange items while items positions are locked.
-- **Alt+right-click** open Dock's main menu or separator sub-menu.
-- **Ctrl+click:** Minimize or restore all windows belonging to the clicked application.
-- **Shift+click:** Launch the item again, opening another window where supported.
-- **Ctrl+Shift+click:** Request an administrator launch where supported.
+For more information go to [Wiki Documentation page](https://github.com/Asteski/WinMac-Dock/wiki).
 
 ## Commands and configuration
 
